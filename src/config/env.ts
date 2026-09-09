@@ -12,6 +12,7 @@ const environmentSchema = z.object({
     .string()
     .url('DATABASE_URL deve ser uma URL de conexão válida.'),
   FRONTEND_URL: z.string().url('FRONTEND_URL deve ser uma URL válida.'),
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET deve ter ao menos 32 caracteres.'),
 });
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);
@@ -31,5 +32,6 @@ export const config = Object.freeze({
   port: environment.PORT,
   databaseUrl: environment.DATABASE_URL,
   frontendUrl: environment.FRONTEND_URL,
+  jwtSecret: environment.JWT_SECRET,
   isProduction: environment.NODE_ENV === 'production',
 });
