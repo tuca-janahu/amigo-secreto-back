@@ -30,6 +30,10 @@
 - Nunca modifique uma migration antiga que já foi aplicada.
 - Gere uma nova migration para cada alteração aplicável.
 - Evite SQL raw sem necessidade e justificativa explícita.
+- `User` e `Participant` são entidades independentes; Participant não representa uma conta.
+- Nunca persista o resultado do sorteio como giver/receiver em texto claro; Assignment deve mantê-lo protegido.
+- Nunca persista o token original de ParticipantAccess; armazene somente seu hash.
+- AnonymousMessage não deve armazenar identificação do autor.
 
 ## Qualidade
 

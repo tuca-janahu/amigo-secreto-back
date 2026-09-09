@@ -6,3 +6,150 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum GroupStatus {
+  DRAFT
+  READY
+  DRAWN
+  CANCELLED
+}
+
+enum NotificationType {
+  DRAW_INVITATION
+}
+
+enum NotificationChannel {
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  groups Group[]
+}
+
+model Group {
+  id          String      @id @default(cuid())
+  ownerId     String
+  name        String
+  status      GroupStatus @default(DRAFT)
+  drawnAt     DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  owner             User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  participants      Participant[]
+  restrictions      Restriction[]
+  anonymousMessages AnonymousMessage[]
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+model Participant {
+  id              String   @id @default(cuid())
+  groupId         String
+  nameEncrypted   String
+  emailEncrypted  String
+  emailLookupHash String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  group                 Group               @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignment            Assignment?
+  accesses              ParticipantAccess[]
+  notifications         Notification[]
+  restrictionsAsGiver   Restriction[]       @relation("RestrictionGiver")
+  restrictionsForbidden Restriction[]       @relation("RestrictionForbidden")
+
+  @@unique([groupId, emailLookupHash])
+  @@index([emailLookupHash])
+}
+
+// The service layer must ensure both participants belong to groupId.
+model Restriction {
+  id                     String   @id @default(cuid())
+  groupId                String
+  giverParticipantId     String
+  forbiddenParticipantId String
+  createdAt              DateTime @default(now())
+
+  group                Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  giverParticipant     Participant @relation("RestrictionGiver", fields: [giverParticipantId], references: [id], onDelete: Cascade)
+  forbiddenParticipant Participant @relation("RestrictionForbidden", fields: [forbiddenParticipantId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, giverParticipantId, forbiddenParticipantId])
+  @@index([giverParticipantId])
+  @@index([forbiddenParticipantId])
+}
+
+model Assignment {
+  id              String   @id @default(cuid())
+  participantId   String   @unique
+  encryptedResult String
+  iv              String
+  authTag         String
+  createdAt       DateTime @default(now())
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+}
+
+model ParticipantAccess {
+  id              String    @id @default(cuid())
+  participantId   String
+  tokenHash       String    @unique
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  firstAccessedAt DateTime?
+  revealedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([participantId])
+}
+
+model AnonymousMessage {
+  id        String    @id @default(cuid())
+  groupId   String
+  content   String
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+model Notification {
+  id                String              @id @default(cuid())
+  participantId     String
+  type              NotificationType
+  channel           NotificationChannel
+  status            NotificationStatus  @default(PENDING)
+  providerMessageId String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([participantId])
+  @@index([status])
+}

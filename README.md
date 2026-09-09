@@ -43,6 +43,15 @@ pnpm build        # gera dist/
 pnpm start        # executa o build de produção
 ```
 
+## Banco de dados
+
+O banco de dados é PostgreSQL, acessado pelo Prisma. Em desenvolvimento, aplique
+as migrations com `pnpm prisma migrate dev` e gere o Prisma Client com
+`pnpm prisma generate`.
+
+Os dados pessoais de `Participant` serão armazenados de forma criptografada em
+uma etapa futura; esta versão apenas prepara os campos de persistência.
+
 ## Organização
 
 ```text
