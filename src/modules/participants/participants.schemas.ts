@@ -8,6 +8,10 @@ export const createParticipantSchema = z.object({
   email: participantEmailSchema,
 });
 
+export const importParticipantsSchema = z.object({
+  data: z.string().min(1),
+});
+
 export const updateParticipantSchema = z
   .object({
     name: participantNameSchema.optional(),

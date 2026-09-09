@@ -12,6 +12,10 @@ import type {
   CreateParticipantInput,
   UpdateParticipantInput,
 } from './participants.schemas.js';
+import {
+  importValidationMessage,
+  parseParticipantImport,
+} from './participants.import.js';
 
 const ownedGroupSelect = {
   id: true,
@@ -29,6 +33,12 @@ const protectedParticipantSelect = {
 type ProtectedParticipant = Prisma.ParticipantGetPayload<{
   select: typeof protectedParticipantSelect;
 }>;
+
+type ParticipantIdentity = {
+  name: string;
+  email: string;
+  emailLookupHash: string;
+};
 
 const getOwnedGroup = async (groupId: string, ownerId: string) => {
   const group = await prisma.group.findFirst({
@@ -75,6 +85,26 @@ const emailAlreadyExists = async (groupId: string, emailLookupHash: string) =>
     select: { id: true },
   });
 
+const toParticipantIdentity = ({ name, email }: CreateParticipantInput): ParticipantIdentity => {
+  const normalizedEmail = normalizeEmail(email);
+
+  return {
+    name,
+    email: normalizedEmail,
+    emailLookupHash: createEmailLookupHash(normalizedEmail),
+  };
+};
+
+const toProtectedParticipantData = (
+  groupId: string,
+  participant: ParticipantIdentity,
+) => ({
+  groupId,
+  nameEncrypted: encryptData(participant.name),
+  emailEncrypted: encryptData(participant.email),
+  emailLookupHash: participant.emailLookupHash,
+});
+
 const isUniqueConstraintError = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
@@ -86,25 +116,93 @@ export const createParticipant = async (
   const group = await getOwnedGroup(groupId, ownerId);
   ensureDraft(group.status);
 
-  const normalizedEmail = normalizeEmail(email);
-  const emailLookupHash = createEmailLookupHash(normalizedEmail);
+  const participantIdentity = toParticipantIdentity({ name, email });
 
-  if (await emailAlreadyExists(group.id, emailLookupHash)) {
+  if (await emailAlreadyExists(group.id, participantIdentity.emailLookupHash)) {
     throw new AppError(409, 'Email already exists in this group.');
   }
 
   try {
     const participant = await prisma.participant.create({
       data: {
-        groupId: group.id,
-        nameEncrypted: encryptData(name),
-        emailEncrypted: encryptData(normalizedEmail),
-        emailLookupHash,
+        ...toProtectedParticipantData(group.id, participantIdentity),
       },
       select: protectedParticipantSelect,
     });
 
     return toPublicParticipant(participant);
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw new AppError(409, 'Email already exists in this group.');
+    }
+
+    throw error;
+  }
+};
+
+export const importParticipants = async (
+  groupId: string,
+  ownerId: string,
+  data: string,
+) => {
+  const group = await getOwnedGroup(groupId, ownerId);
+  ensureDraft(group.status);
+
+  const parsedImport = parseParticipantImport(data);
+
+  if (parsedImport.issues.length > 0) {
+    throw new AppError(400, importValidationMessage(parsedImport.issues));
+  }
+
+  const participantIdentities = parsedImport.participants.map(toParticipantIdentity);
+  const firstLineByHash = new Map<string, number>();
+  const duplicateIssues = [] as Array<{ line: number; reason: string }>;
+
+  for (const [index, participant] of participantIdentities.entries()) {
+    const originalLine = firstLineByHash.get(participant.emailLookupHash);
+
+    if (originalLine !== undefined) {
+      duplicateIssues.push({
+        line: parsedImport.participants[index].line,
+        reason: `Duplicate email also provided on line ${originalLine}.`,
+      });
+      continue;
+    }
+
+    firstLineByHash.set(participant.emailLookupHash, parsedImport.participants[index].line);
+  }
+
+  if (duplicateIssues.length > 0) {
+    throw new AppError(400, importValidationMessage(duplicateIssues));
+  }
+
+  const existingParticipants = await prisma.participant.findMany({
+    where: {
+      groupId: group.id,
+      emailLookupHash: {
+        in: participantIdentities.map(({ emailLookupHash }) => emailLookupHash),
+      },
+    },
+    select: { id: true },
+  });
+
+  if (existingParticipants.length > 0) {
+    throw new AppError(409, 'Email already exists in this group.');
+  }
+
+  try {
+    const createdParticipants = await prisma.$transaction((transaction) =>
+      Promise.all(
+        participantIdentities.map((participantIdentity) =>
+          transaction.participant.create({
+            data: toProtectedParticipantData(group.id, participantIdentity),
+            select: protectedParticipantSelect,
+          }),
+        ),
+      ),
+    );
+
+    return createdParticipants.map(toPublicParticipant);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       throw new AppError(409, 'Email already exists in this group.');

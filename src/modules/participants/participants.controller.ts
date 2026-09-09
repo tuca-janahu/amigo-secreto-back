@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from '../auth/auth.types.js';
 import {
   createParticipantSchema,
   groupParamsSchema,
+  importParticipantsSchema,
   participantParamsSchema,
   updateParticipantSchema,
 } from './participants.schemas.js';
@@ -12,6 +13,7 @@ import {
   createParticipant,
   deleteParticipant,
   getParticipant,
+  importParticipants,
   listParticipants,
   updateParticipant,
 } from './participants.service.js';
@@ -67,6 +69,29 @@ export const list: RequestHandler = async (request, response, next) => {
     );
 
     response.status(200).json({ participants });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const importBatch: RequestHandler = async (request, response, next) => {
+  try {
+    const parsedBody = importParticipantsSchema.safeParse(request.body);
+
+    if (!parsedBody.success) {
+      throw new AppError(400, 'Invalid request data.');
+    }
+
+    const participants = await importParticipants(
+      parseGroupId(request.params),
+      getAuthenticatedUserId(request as AuthenticatedRequest),
+      parsedBody.data.data,
+    );
+
+    response.status(201).json({
+      imported: participants.length,
+      participants,
+    });
   } catch (error) {
     next(error);
   }
