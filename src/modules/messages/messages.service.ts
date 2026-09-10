@@ -16,7 +16,7 @@ type PublicMessage = Prisma.AnonymousMessageGetPayload<{
 }>;
 
 const participantAccessUnavailableError = (): AppError =>
-  new AppError(404, 'Participant access not found.');
+  new AppError(404, 'Acesso do participante não encontrado.');
 
 const getParticipantMessageGroup = async (token: string) => {
   const group = await getParticipantAccessGroup(token);
@@ -35,7 +35,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
   });
 
   if (!group) {
-    throw new AppError(404, 'Group not found.');
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return group;
@@ -85,6 +85,6 @@ export const deleteOwnerMessage = async (
   });
 
   if (deletedMessage.count !== 1) {
-    throw new AppError(404, 'Message not found.');
+    throw new AppError(404, 'Mensagem não encontrada.');
   }
 };

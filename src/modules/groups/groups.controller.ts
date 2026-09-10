@@ -22,7 +22,7 @@ const parseGroupId = (params: unknown): string => {
   const parsedParams = groupParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid group id.');
+    throw new AppError(400, 'ID do grupo inválido.');
   }
 
   return parsedParams.data.groupId;
@@ -33,7 +33,7 @@ export const create: RequestHandler = async (request, response, next) => {
     const parsedBody = createGroupSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const group = await createGroup(
@@ -77,7 +77,7 @@ export const update: RequestHandler = async (request, response, next) => {
     const parsedBody = updateGroupSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const group = await renameGroup(

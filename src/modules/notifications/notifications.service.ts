@@ -53,7 +53,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
   });
 
   if (!group) {
-    throw new AppError(404, 'Group not found.');
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return group;
@@ -61,7 +61,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
 
 const ensureSorteado = (status: GroupStatus): void => {
   if (status !== GroupStatus.SORTEADO) {
-    throw new AppError(409, 'Invitations are available only for sorteado groups.');
+    throw new AppError(409, 'Convites estão disponíveis apenas para grupos sorteados.');
   }
 };
 
@@ -72,7 +72,7 @@ const getGroupParticipant = async (groupId: string, participantId: string) => {
   });
 
   if (!participant) {
-    throw new AppError(404, 'Participant not found.');
+    throw new AppError(404, 'Participante não encontrado.');
   }
 
   return participant;
@@ -84,7 +84,7 @@ const toInvitationRecipient = (participant: ProtectedParticipant): InvitationRec
   email: decryptData(participant.emailEncrypted),
 });
 
-const notificationErrorMessage = (): string => 'Unable to send invitation email.';
+const notificationErrorMessage = (): string => 'Não foi possível enviar o e-mail de convite.';
 
 const deliverInvitation = async ({
   participant,

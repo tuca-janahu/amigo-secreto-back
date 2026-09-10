@@ -161,7 +161,9 @@ describe('participant public access', () => {
     const response = await request(app).get(`/public/participant-access/${token}`);
 
     expect(response.status).toBe(404);
-    expect(response.body).toEqual({ message: 'Participant access not found.' });
+    expect(response.body).toEqual({
+      message: 'Acesso do participante não encontrado.',
+    });
   });
 });
 

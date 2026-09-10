@@ -19,7 +19,7 @@ const parseGroupId = (params: unknown): string => {
   const parsedParams = invitationGroupParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid group id.');
+    throw new AppError(400, 'ID do grupo inválido.');
   }
 
   return parsedParams.data.groupId;
@@ -29,7 +29,7 @@ const parseParticipantParams = (params: unknown) => {
   const parsedParams = invitationParticipantParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid invitation parameters.');
+    throw new AppError(400, 'Parâmetros do convite inválidos.');
   }
 
   return parsedParams.data;

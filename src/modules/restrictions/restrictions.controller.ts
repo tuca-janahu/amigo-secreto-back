@@ -22,7 +22,7 @@ const parseGroupId = (params: unknown): string => {
   const parsedParams = groupParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid group id.');
+    throw new AppError(400, 'ID do grupo inválido.');
   }
 
   return parsedParams.data.groupId;
@@ -32,7 +32,7 @@ const parseRestrictionParams = (params: unknown) => {
   const parsedParams = restrictionParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid restriction parameters.');
+    throw new AppError(400, 'Parâmetros da restrição inválidos.');
   }
 
   return parsedParams.data;
@@ -43,7 +43,7 @@ export const create: RequestHandler = async (request, response, next) => {
     const parsedBody = createRestrictionSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const restriction = await createRestriction(
@@ -63,7 +63,7 @@ export const createBilateral: RequestHandler = async (request, response, next) =
     const parsedBody = createBilateralRestrictionSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const restrictions = await createBilateralRestriction(

@@ -28,7 +28,7 @@ export const registerUser = async ({
   });
 
   if (existingUser) {
-    throw new AppError(409, 'Email already registered.');
+    throw new AppError(409, 'E-mail já cadastrado.');
   }
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
@@ -40,7 +40,7 @@ export const registerUser = async ({
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'Email already registered.');
+      throw new AppError(409, 'E-mail já cadastrado.');
     }
 
     throw error;
@@ -60,7 +60,7 @@ export const authenticateUser = async ({
   });
 
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-    throw new AppError(401, 'Invalid credentials.');
+    throw new AppError(401, 'Credenciais inválidas.');
   }
 
   return { id: user.id, name: user.name, email: user.email };

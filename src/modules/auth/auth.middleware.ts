@@ -25,7 +25,7 @@ export const requireAuth: RequestHandler = (request, _response, next) => {
   const userId = token ? getUserIdFromAuthToken(token) : null;
 
   if (!userId) {
-    next(new AppError(401, 'Unauthorized.'));
+    next(new AppError(401, 'Não autorizado.'));
     return;
   }
 

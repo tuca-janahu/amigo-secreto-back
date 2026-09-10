@@ -26,7 +26,7 @@ const getCredentials = (body: unknown) => {
   const parsedCredentials = credentialsSchema.safeParse(body);
 
   if (!parsedCredentials.success) {
-    throw new AppError(400, 'Invalid request data.');
+    throw new AppError(400, 'Dados da requisição inválidos.');
   }
 
   return parsedCredentials.data;
@@ -36,7 +36,7 @@ const getRegistrationData = (body: unknown) => {
   const parsedRegistration = registrationSchema.safeParse(body);
 
   if (!parsedRegistration.success) {
-    throw new AppError(400, 'Invalid request data.');
+    throw new AppError(400, 'Dados da requisição inválidos.');
   }
 
   return parsedRegistration.data;
@@ -80,7 +80,7 @@ export const getCurrentUser: RequestHandler = async (
     const user = await getUserById(userId);
 
     if (!user) {
-      throw new AppError(401, 'Unauthorized.');
+      throw new AppError(401, 'Não autorizado.');
     }
 
     response.status(200).json({ user });

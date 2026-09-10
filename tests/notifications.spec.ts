@@ -259,7 +259,7 @@ describe('initial invitation delivery', () => {
           participantId: secondParticipant.id,
           status: 'FAILED',
           failedAt: expect.any(Date),
-          errorMessage: 'Unable to send invitation email.',
+          errorMessage: 'Não foi possível enviar o e-mail de convite.',
         }),
       ]),
     );

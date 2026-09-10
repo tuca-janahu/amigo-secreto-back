@@ -21,6 +21,7 @@ vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
 import { createAuthToken } from '../src/lib/auth-token.js';
 import { app } from '../src/app.js';
 import { hashParticipantAccessToken } from '../src/modules/participant-access/participant-access.tokens.js';
+import { messageCreationRateLimiter } from '../src/middlewares/security.js';
 
 type StoredGroup = {
   id: string;
@@ -96,6 +97,7 @@ const toPublicMessage = ({ id, content, createdAt }: StoredMessage) => ({
 });
 
 beforeEach(() => {
+  messageCreationRateLimiter.resetKey('127.0.0.1');
   vi.clearAllMocks();
   groups.clear();
   accesses.clear();
@@ -205,7 +207,9 @@ describe('participant anonymous messages', () => {
     );
 
     expect(response.status).toBe(404);
-    expect(response.body).toEqual({ message: 'Participant access not found.' });
+    expect(response.body).toEqual({
+      message: 'Acesso do participante não encontrado.',
+    });
   });
 
   it.each(['DRAFT', 'CANCELLED'] as const)(
@@ -265,6 +269,26 @@ describe('participant anonymous messages', () => {
     expect(emptyResponse.status).toBe(400);
     expect(oversizedResponse.status).toBe(400);
     expect(messages.size).toBe(0);
+  });
+
+  it('limita a publicação a vinte mensagens por IP em quinze minutos', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+    addAccess('spam-token', groupId);
+
+    const responses = [];
+
+    for (let index = 0; index < 21; index += 1) {
+      responses.push(
+        await request(app)
+          .post('/public/participant-access/spam-token/messages')
+          .send({ content: `Mensagem ${index}` }),
+      );
+    }
+
+    expect(responses.slice(0, 20).every(({ status }) => status === 201)).toBe(true);
+    expect(responses[20].status).toBe(429);
+    expect(messages.size).toBe(20);
   });
 });
 

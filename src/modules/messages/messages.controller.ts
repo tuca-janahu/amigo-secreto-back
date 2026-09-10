@@ -21,7 +21,7 @@ const parseToken = (params: unknown): string => {
   const parsedParams = participantAccessMessageParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(404, 'Participant access not found.');
+    throw new AppError(404, 'Acesso do participante não encontrado.');
   }
 
   return parsedParams.data.token;
@@ -31,7 +31,7 @@ const parseGroupId = (params: unknown): string => {
   const parsedParams = groupMessageParamsSchema.pick({ groupId: true }).safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid group id.');
+    throw new AppError(400, 'ID do grupo inválido.');
   }
 
   return parsedParams.data.groupId;
@@ -41,7 +41,7 @@ const parseMessageParams = (params: unknown) => {
   const parsedParams = groupMessageParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid message parameters.');
+    throw new AppError(400, 'Parâmetros da mensagem inválidos.');
   }
 
   return parsedParams.data;
@@ -61,7 +61,7 @@ export const createForParticipant: RequestHandler = async (request, response, ne
     const parsedBody = createMessageSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const message = await createParticipantMessage(

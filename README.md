@@ -1,67 +1,72 @@
 # Amigo Secreto — Backend
 
-Backend da aplicação de Amigo Secreto. Este repositório contém somente a API; o frontend é mantido separadamente.
+API do MVP de Amigo Secreto, construída com Node.js, TypeScript, Express,
+PostgreSQL e Prisma.
 
-## Stack
+## Configuração
 
-- Node.js 22 LTS
-- TypeScript (strict)
-- Express
-- PostgreSQL e Prisma
-- Zod
-- Vitest e Supertest
+Copie `.env.example` para `.env` e informe todas as variáveis obrigatórias:
 
-## Pré-requisitos
+- `NODE_ENV`: `development`, `test` ou `production`.
+- `PORT`: porta HTTP.
+- `DATABASE_URL`: conexão PostgreSQL.
+- `FRONTEND_URL`: origem exata autorizada pelo CORS e pela proteção de origem.
+- `APP_URL`: URL pública usada nos links dos convites.
+- `JWT_SECRET`: segredo aleatório com ao menos 32 caracteres.
+- `DATA_ENCRYPTION_KEY`: chave AES-256 em Base64 para dados pessoais.
+- `SORTEIO_ENCRYPTION_KEY`: chave AES-256 distinta em Base64 para resultados.
+- `EMAIL_LOOKUP_SECRET`: segredo aleatório com ao menos 32 caracteres.
+- `RESEND_API_KEY`: chave da API do Resend.
+- `EMAIL_FROM`: remetente validado no Resend.
+- `TRUST_PROXY_HOPS`: quantidade de proxies confiáveis até a API. O padrão é `1`
+  em produção (Coolify) e `0` nos demais ambientes.
 
-- Node.js 22 (veja `.nvmrc`)
-- pnpm 10+
-- PostgreSQL disponível
+Gere cada chave AES-256 com `openssl rand -base64 32`. Não reutilize chaves entre
+finalidades nem versione o arquivo `.env`.
 
-## Instalação
+## Desenvolvimento
 
 ```bash
 pnpm install
-cp .env.example .env
+pnpm prisma generate
+pnpm prisma migrate dev
+pnpm dev
 ```
 
-No Windows PowerShell, use:
+## Produção
 
-```powershell
-Copy-Item .env.example .env
-```
-
-Atualize `DATABASE_URL` e `FRONTEND_URL` no arquivo `.env` para o seu ambiente.
-
-## Comandos principais
+O reverse proxy deve ser o único ponto público de entrada da API. O valor padrão
+`TRUST_PROXY_HOPS=1` confia somente no salto direto do Coolify para obter o IP do
+cliente; ajuste-o se a topologia ganhar outro proxy. Os rate limits usam memória
+local e deverão adotar um store compartilhado caso a aplicação passe a ter várias
+instâncias.
 
 ```bash
-pnpm dev          # inicia em desenvolvimento
-pnpm test         # executa os testes
-pnpm typecheck    # verifica os tipos
-pnpm lint         # verifica o código
-pnpm build        # gera dist/
-pnpm start        # executa o build de produção
+pnpm install --frozen-lockfile
+pnpm prisma generate
+pnpm prisma migrate deploy
+pnpm build
+pnpm start
 ```
 
-## Banco de dados
+O script `pnpm db:deploy` é um atalho para `prisma migrate deploy`. A aplicação
+não executa migrations automaticamente no startup.
 
-O banco de dados é PostgreSQL, acessado pelo Prisma. Em desenvolvimento, aplique
-as migrations com `pnpm prisma migrate dev` e gere o Prisma Client com
-`pnpm prisma generate`.
+## Health check
 
-Os dados pessoais de `Participant` serão armazenados de forma criptografada em
-uma etapa futura; esta versão apenas prepara os campos de persistência.
+`GET /health` é público e retorna somente:
 
-## Organização
+```json
+{ "status": "ok" }
+```
 
-```text
-src/
-  config/       validação e acesso centralizado à configuração
-  lib/          integrações compartilhadas, como Prisma
-  middlewares/  tratamento global de erros
-  modules/      módulos da API (route → controller → service)
-  app.ts        configuração do Express, sem iniciar a porta
-  server.ts     inicialização do processo HTTP
-prisma/         schema do Prisma
-tests/          testes automatizados
+## Validação
+
+```bash
+pnpm prisma validate
+pnpm prisma generate
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```

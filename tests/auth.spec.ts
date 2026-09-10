@@ -12,6 +12,7 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
 
 import { app } from '../src/app.js';
+import { authRateLimiter } from '../src/middlewares/security.js';
 
 type StoredUser = {
   id: string;
@@ -51,6 +52,7 @@ const getAuthCookie = (setCookie: string[] | undefined): string => {
 };
 
 beforeEach(() => {
+  authRateLimiter.resetKey('127.0.0.1');
   users.clear();
   prismaMock.user.findUnique.mockImplementation(async ({ where, select }) => {
     const user = where.email
@@ -160,6 +162,9 @@ describe('auth', () => {
       });
       expect(response.headers['set-cookie']?.[0]).toContain('HttpOnly');
       expect(response.headers['set-cookie']?.[0]).toContain('SameSite=Lax');
+      expect(response.headers['set-cookie']?.[0]).toContain('Path=/');
+      expect(response.headers['set-cookie']?.[0]).toContain('Max-Age=604800');
+      expect(response.body).not.toHaveProperty('token');
     });
 
     it('returns the same generic error for invalid passwords and unknown users', async () => {
@@ -176,8 +181,27 @@ describe('auth', () => {
 
       expect(invalidPassword.status).toBe(401);
       expect(unknownUser.status).toBe(401);
-      expect(invalidPassword.body).toEqual({ message: 'Invalid credentials.' });
-      expect(unknownUser.body).toEqual({ message: 'Invalid credentials.' });
+      expect(invalidPassword.body).toEqual({ message: 'Credenciais inválidas.' });
+      expect(unknownUser.body).toEqual({ message: 'Credenciais inválidas.' });
+    });
+
+    it('aplica rate limit após dez tentativas por IP', async () => {
+      const responses = [];
+
+      for (let attempt = 0; attempt < 11; attempt += 1) {
+        responses.push(
+          await request(app).post('/auth/login').send({
+            email: 'unknown@email.com',
+            password: 'wrong-password',
+          }),
+        );
+      }
+
+      expect(responses.slice(0, 10).every(({ status }) => status === 401)).toBe(true);
+      expect(responses[10].status).toBe(429);
+      expect(responses[10].body).toEqual({
+        message: 'Muitas tentativas. Tente novamente em alguns minutos.',
+      });
     });
   });
 

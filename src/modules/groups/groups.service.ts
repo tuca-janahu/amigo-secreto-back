@@ -26,7 +26,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
   });
 
   if (!group) {
-    throw new AppError(404, 'Group not found.');
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return group;
@@ -34,7 +34,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
 
 const ensureDraft = (status: GroupStatus): void => {
   if (status !== GroupStatus.DRAFT) {
-    throw new AppError(409, 'Group can only be changed while in DRAFT.');
+    throw new AppError(409, 'Este grupo só pode ser alterado enquanto estiver em rascunho.');
   }
 };
 

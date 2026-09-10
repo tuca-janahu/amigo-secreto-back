@@ -289,6 +289,26 @@ describe('POST /groups/:groupId/sorteio', () => {
     }
   });
 
+  it('mantém o sorteio concluído quando o envio inicial falha', async () => {
+    const groupId = cuid(1);
+    const group = addGroup(groupId, 'owner-1');
+    addParticipants(groupId, 3);
+    notificationMock.sendInitialInvitations.mockRejectedValueOnce(
+      new Error('Falha do provedor'),
+    );
+
+    const response = await request(app)
+      .post(`/groups/${groupId}/sorteio`)
+      .set('Cookie', authCookie('owner-1'));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      group: expect.objectContaining({ id: groupId, status: 'SORTEADO' }),
+    });
+    expect(group.status).toBe('SORTEADO');
+    expect(assignments.size).toBe(3);
+  });
+
   it('does not create a sorteio without a valid assignment', async () => {
     const groupId = cuid(1);
     const [participantAId, participantBId, participantCId] = addParticipants(groupId, 3);

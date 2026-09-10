@@ -54,7 +54,7 @@ const getOwnedGroup = async (
   });
 
   if (!group) {
-    throw new AppError(404, 'Group not found.');
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return group;
@@ -62,7 +62,7 @@ const getOwnedGroup = async (
 
 const ensureDraft = (status: GroupStatus): void => {
   if (status !== GroupStatus.DRAFT) {
-    throw new AppError(409, 'Group can only be changed while in DRAFT.');
+    throw new AppError(409, 'Este grupo só pode ser alterado enquanto estiver em rascunho.');
   }
 };
 
@@ -71,7 +71,7 @@ const ensureDifferentParticipants = (
   forbiddenParticipantId: string,
 ): void => {
   if (giverParticipantId === forbiddenParticipantId) {
-    throw new AppError(400, 'A participant cannot be restricted from themselves.');
+    throw new AppError(400, 'Um participante não pode ter restrição consigo mesmo.');
   }
 };
 
@@ -89,7 +89,7 @@ const ensureGroupParticipants = async (
   });
 
   if (participants.length !== 2) {
-    throw new AppError(404, 'Participant not found.');
+    throw new AppError(404, 'Participante não encontrado.');
   }
 };
 
@@ -141,7 +141,7 @@ export const createRestriction = async (
       forbiddenParticipantId,
     )
   ) {
-    throw new AppError(409, 'Restriction already exists.');
+    throw new AppError(409, 'A restrição já existe.');
   }
 
   try {
@@ -151,7 +151,7 @@ export const createRestriction = async (
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'Restriction already exists.');
+      throw new AppError(409, 'A restrição já existe.');
     }
 
     throw error;
@@ -191,7 +191,7 @@ export const createBilateralRestriction = async (
 
       // Bilateral requests are strict: an existing direction rejects the whole operation.
       if (firstRestriction || secondRestriction) {
-        throw new AppError(409, 'A bilateral restriction already exists.');
+        throw new AppError(409, 'Uma restrição bilateral já existe.');
       }
 
       return Promise.all([
@@ -215,7 +215,7 @@ export const createBilateralRestriction = async (
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'A bilateral restriction already exists.');
+      throw new AppError(409, 'Uma restrição bilateral já existe.');
     }
 
     throw error;
@@ -246,7 +246,7 @@ export const deleteRestriction = async (
   });
 
   if (!restriction) {
-    throw new AppError(404, 'Restriction not found.');
+    throw new AppError(404, 'Restrição não encontrada.');
   }
 
   await prisma.restriction.delete({ where: { id: restriction.id } });

@@ -25,7 +25,7 @@ const parseGroupId = (params: unknown): string => {
   const parsedParams = groupParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid group id.');
+    throw new AppError(400, 'ID do grupo inválido.');
   }
 
   return parsedParams.data.groupId;
@@ -35,7 +35,7 @@ const parseParticipantParams = (params: unknown) => {
   const parsedParams = participantParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid participant parameters.');
+    throw new AppError(400, 'Parâmetros do participante inválidos.');
   }
 
   return parsedParams.data;
@@ -46,7 +46,7 @@ export const create: RequestHandler = async (request, response, next) => {
     const parsedBody = createParticipantSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const participant = await createParticipant(
@@ -79,7 +79,7 @@ export const importBatch: RequestHandler = async (request, response, next) => {
     const parsedBody = importParticipantsSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const participants = await importParticipants(
@@ -117,7 +117,7 @@ export const update: RequestHandler = async (request, response, next) => {
     const parsedBody = updateParticipantSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
-      throw new AppError(400, 'Invalid request data.');
+      throw new AppError(400, 'Dados da requisição inválidos.');
     }
 
     const { groupId, participantId } = parseParticipantParams(request.params);

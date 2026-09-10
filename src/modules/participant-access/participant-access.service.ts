@@ -37,7 +37,7 @@ const participantAccessSelect = {
 } satisfies Prisma.ParticipantAccessSelect;
 
 const invalidAccessError = (): AppError =>
-  new AppError(404, 'Participant access not found.');
+  new AppError(404, 'Acesso do participante não encontrado.');
 
 const getValidAccess = async (token: string) => {
   const access = await prisma.participantAccess.findUnique({

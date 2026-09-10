@@ -11,7 +11,7 @@ const parseToken = (params: unknown): string => {
   const parsedParams = participantAccessParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(404, 'Participant access not found.');
+    throw new AppError(404, 'Acesso do participante não encontrado.');
   }
 
   return parsedParams.data.token;

@@ -120,8 +120,8 @@ describe('participant import parser', () => {
     const invalidName = parseParticipantImport('\tlucas@email.com');
 
     expect(invalidColumns.issues[0]).toMatchObject({ line: 1 });
-    expect(invalidEmail.issues[0]).toEqual({ line: 1, reason: 'Invalid email.' });
-    expect(invalidName.issues[0]).toEqual({ line: 1, reason: 'Invalid name.' });
+    expect(invalidEmail.issues[0]).toEqual({ line: 1, reason: 'E-mail inválido.' });
+    expect(invalidName.issues[0]).toEqual({ line: 1, reason: 'Nome inválido.' });
   });
 });
 
@@ -168,7 +168,7 @@ describe('POST /groups/:groupId/participants/import', () => {
       .send({ data: 'Lucas\tlucas@email.com\nMaria\tinvalid-email' });
 
     expect(response.status).toBe(400);
-    expect(response.body.message).toContain('line 2');
+    expect(response.body.message).toContain('linha 2');
     expect(participants.size).toBe(0);
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
@@ -183,8 +183,8 @@ describe('POST /groups/:groupId/participants/import', () => {
       .send({ data: 'Lucas\tTESTE@email.com\nMaria\tteste@email.com' });
 
     expect(response.status).toBe(400);
-    expect(response.body.message).toContain('line 2');
-    expect(response.body.message).toContain('line 1');
+    expect(response.body.message).toContain('linha 2');
+    expect(response.body.message).toContain('linha 1');
     expect(participants.size).toBe(0);
   });
 
@@ -227,7 +227,7 @@ describe('POST /groups/:groupId/participants/import', () => {
       .send({ data });
 
     expect(response.status).toBe(400);
-    expect(response.body.message).toContain('limit of 100');
+    expect(response.body.message).toContain('limite de 100');
     expect(participants.size).toBe(0);
   });
 

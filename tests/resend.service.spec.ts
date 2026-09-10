@@ -48,6 +48,6 @@ describe('Resend invitation email', () => {
         groupName: 'Amigo Secreto 2026',
         token: 'individual-token',
       }),
-    ).rejects.toThrow('Recipient is invalid');
+    ).rejects.toThrow('Não foi possível enviar o e-mail de convite.');
   });
 });

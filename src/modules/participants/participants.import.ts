@@ -29,7 +29,7 @@ const isHeader = (columns: string[]): boolean => {
 };
 
 const formatIssues = (issues: ImportIssue[]): string =>
-  issues.map(({ line, reason }) => `line ${line}: ${reason}`).join('; ');
+  issues.map(({ line, reason }) => `linha ${line}: ${reason}`).join('; ');
 
 export const parseParticipantImport = (data: string): ImportParseResult => {
   const participants: ImportParticipant[] = [];
@@ -58,7 +58,7 @@ export const parseParticipantImport = (data: string): ImportParseResult => {
     if (columns.length !== 2) {
       issues.push({
         line: index + 1,
-        reason: 'Expected exactly two columns: name and email.',
+        reason: 'Eram esperadas exatamente duas colunas: nome e e-mail.',
       });
       continue;
     }
@@ -72,8 +72,8 @@ export const parseParticipantImport = (data: string): ImportParseResult => {
       const reason = parsedParticipant.error.issues.some(
         (issue) => issue.path[0] === 'email',
       )
-        ? 'Invalid email.'
-        : 'Invalid name.';
+        ? 'E-mail inválido.'
+        : 'Nome inválido.';
 
       issues.push({ line: index + 1, reason });
       continue;
@@ -85,16 +85,16 @@ export const parseParticipantImport = (data: string): ImportParseResult => {
   if (participants.length + issues.length > IMPORT_LIMIT) {
     issues.push({
       line: IMPORT_LIMIT + 1,
-      reason: `Import limit of ${IMPORT_LIMIT} participants exceeded.`,
+      reason: `O limite de ${IMPORT_LIMIT} participantes por importação foi excedido.`,
     });
   }
 
   if (participants.length === 0 && issues.length === 0) {
-    issues.push({ line: 1, reason: 'No participants were provided.' });
+    issues.push({ line: 1, reason: 'Nenhum participante foi informado.' });
   }
 
   return { participants, issues };
 };
 
 export const importValidationMessage = (issues: ImportIssue[]): string =>
-  `Invalid import data: ${formatIssues(issues)}`;
+  `Dados de importação inválidos: ${formatIssues(issues)}`;

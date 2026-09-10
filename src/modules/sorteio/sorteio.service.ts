@@ -56,7 +56,7 @@ const getOwnedGroup = async (
   });
 
   if (!group) {
-    throw new AppError(404, 'Group not found.');
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return group;
@@ -98,12 +98,12 @@ const getViability = ({
 
 const ensureDraft = (status: GroupStatus): void => {
   if (status !== GroupStatus.DRAFT) {
-    throw new AppError(409, 'Group can only be sorteado while in DRAFT.');
+    throw new AppError(409, 'O grupo só pode ser sorteado enquanto estiver em rascunho.');
   }
 };
 
 const sorteioNotViableError = (): AppError =>
-  new AppError(409, 'Sorteio is not viable.', 'SORTEIO_NOT_VIABLE');
+  new AppError(409, 'O sorteio não é viável.', 'SORTEIO_NOT_VIABLE');
 
 export const getSorteioViability = async (
   groupId: string,
@@ -143,7 +143,7 @@ export const sortearGrupo = async (groupId: string, ownerId: string) =>
     });
 
     if (updatedGroup.count !== 1) {
-      throw new AppError(409, 'Group can only be sorteado once.');
+      throw new AppError(409, 'O grupo só pode ser sorteado uma vez.');
     }
 
     await transaction.assignment.createMany({

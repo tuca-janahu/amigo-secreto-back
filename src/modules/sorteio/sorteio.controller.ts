@@ -13,7 +13,7 @@ const parseGroupId = (params: unknown): string => {
   const parsedParams = groupParamsSchema.safeParse(params);
 
   if (!parsedParams.success) {
-    throw new AppError(400, 'Invalid group id.');
+    throw new AppError(400, 'ID do grupo inválido.');
   }
 
   return parsedParams.data.groupId;
@@ -39,7 +39,8 @@ export const sorteio: RequestHandler = async (request, response, next) => {
       getAuthenticatedUserId(request as AuthenticatedRequest),
     );
 
-    await sendInitialInvitations(group.id, participantAccessTokens);
+    // O sorteio já foi persistido; falhas do provedor de e-mail não invalidam a operação.
+    await sendInitialInvitations(group.id, participantAccessTokens).catch(() => undefined);
 
     response.status(200).json({ group });
   } catch (error) {

@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express, { type Express } from 'express';
+import helmet from 'helmet';
 
 import { config } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
@@ -18,9 +19,18 @@ import { restrictionsRouter } from './modules/restrictions/restrictions.routes.j
 
 export const app: Express = express();
 
+app.set('trust proxy', config.trustProxyHops);
 app.disable('x-powered-by');
-app.use(express.json());
-app.use(cors({ origin: config.frontendUrl, credentials: true }));
+app.use(helmet());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      callback(null, origin === undefined || origin === config.frontendOrigin);
+    },
+    credentials: true,
+  }),
+);
+app.use(express.json({ limit: '100kb' }));
 
 app.use('/auth', authRouter);
 app.use('/groups', groupsRouter);

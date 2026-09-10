@@ -47,7 +47,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
   });
 
   if (!group) {
-    throw new AppError(404, 'Group not found.');
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return group;
@@ -55,7 +55,7 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
 
 const ensureDraft = (status: GroupStatus): void => {
   if (status !== GroupStatus.DRAFT) {
-    throw new AppError(409, 'Group can only be changed while in DRAFT.');
+    throw new AppError(409, 'Este grupo só pode ser alterado enquanto estiver em rascunho.');
   }
 };
 
@@ -66,7 +66,7 @@ const getGroupParticipant = async (groupId: string, participantId: string) => {
   });
 
   if (!participant) {
-    throw new AppError(404, 'Participant not found.');
+    throw new AppError(404, 'Participante não encontrado.');
   }
 
   return participant;
@@ -119,7 +119,7 @@ export const createParticipant = async (
   const participantIdentity = toParticipantIdentity({ name, email });
 
   if (await emailAlreadyExists(group.id, participantIdentity.emailLookupHash)) {
-    throw new AppError(409, 'Email already exists in this group.');
+    throw new AppError(409, 'Este e-mail já existe no grupo.');
   }
 
   try {
@@ -133,7 +133,7 @@ export const createParticipant = async (
     return toPublicParticipant(participant);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'Email already exists in this group.');
+      throw new AppError(409, 'Este e-mail já existe no grupo.');
     }
 
     throw error;
@@ -164,7 +164,7 @@ export const importParticipants = async (
     if (originalLine !== undefined) {
       duplicateIssues.push({
         line: parsedImport.participants[index].line,
-        reason: `Duplicate email also provided on line ${originalLine}.`,
+        reason: `E-mail duplicado, também informado na linha ${originalLine}.`,
       });
       continue;
     }
@@ -187,7 +187,7 @@ export const importParticipants = async (
   });
 
   if (existingParticipants.length > 0) {
-    throw new AppError(409, 'Email already exists in this group.');
+    throw new AppError(409, 'Este e-mail já existe no grupo.');
   }
 
   try {
@@ -205,7 +205,7 @@ export const importParticipants = async (
     return createdParticipants.map(toPublicParticipant);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'Email already exists in this group.');
+      throw new AppError(409, 'Este e-mail já existe no grupo.');
     }
 
     throw error;
@@ -255,7 +255,7 @@ export const updateParticipant = async (
 
     if (emailLookupHash !== participant.emailLookupHash) {
       if (await emailAlreadyExists(group.id, emailLookupHash)) {
-        throw new AppError(409, 'Email already exists in this group.');
+        throw new AppError(409, 'Este e-mail já existe no grupo.');
       }
     }
 
@@ -273,7 +273,7 @@ export const updateParticipant = async (
     return toPublicParticipant(updatedParticipant);
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError(409, 'Email already exists in this group.');
+      throw new AppError(409, 'Este e-mail já existe no grupo.');
     }
 
     throw error;

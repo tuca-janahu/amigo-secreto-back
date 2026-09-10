@@ -100,7 +100,7 @@ export const sendInvitationEmail = async ({
   });
 
   if (result.error || !result.data?.id) {
-    throw new Error(result.error?.message ?? 'Email provider did not return a message id.');
+    throw new Error('Não foi possível enviar o e-mail de convite.');
   }
 
   return result.data.id;

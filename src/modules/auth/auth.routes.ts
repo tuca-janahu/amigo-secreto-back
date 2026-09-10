@@ -7,10 +7,14 @@ import {
   register,
 } from './auth.controller.js';
 import { requireAuth } from './auth.middleware.js';
+import {
+  authRateLimiter,
+  requireTrustedOrigin,
+} from '../../middlewares/security.js';
 
 export const authRouter: ExpressRouter = Router();
 
-authRouter.post('/register', register);
-authRouter.post('/login', login);
+authRouter.post('/register', authRateLimiter, requireTrustedOrigin, register);
+authRouter.post('/login', authRateLimiter, requireTrustedOrigin, login);
 authRouter.get('/me', requireAuth, getCurrentUser);
-authRouter.post('/logout', logout);
+authRouter.post('/logout', requireTrustedOrigin, logout);
