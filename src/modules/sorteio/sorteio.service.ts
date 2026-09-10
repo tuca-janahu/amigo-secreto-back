@@ -4,6 +4,11 @@ import { AppError } from '../../lib/app-error.js';
 import { encryptSorteioResult } from '../../lib/data-protection.js';
 import { prisma } from '../../lib/prisma.js';
 import {
+  generateParticipantAccessToken,
+  getParticipantAccessExpiration,
+  hashParticipantAccessToken,
+} from '../participant-access/participant-access.tokens.js';
+import {
   findSorteioMatching,
   type SorteioRestriction,
 } from './sorteio.engine.js';
@@ -34,6 +39,11 @@ type SorteioData = {
 export type SorteioViability =
   | { viable: true }
   | { viable: false; reason: 'NOT_ENOUGH_PARTICIPANTS' | 'NO_VALID_ASSIGNMENT' };
+
+export type ParticipantAccessToken = {
+  participantId: string;
+  token: string;
+};
 
 const getOwnedGroup = async (
   client: PrismaClient,
@@ -151,9 +161,26 @@ export const sortearGrupo = async (groupId: string, ownerId: string) =>
       }),
     });
 
+    const participantAccessTokens: ParticipantAccessToken[] =
+      sorteioData.participantIds.map((participantId) => ({
+        participantId,
+        token: generateParticipantAccessToken(),
+      }));
+
+    await transaction.participantAccess.createMany({
+      data: participantAccessTokens.map(({ participantId, token }) => ({
+        participantId,
+        tokenHash: hashParticipantAccessToken(token),
+        expiresAt: getParticipantAccessExpiration(sorteadoAt),
+      })),
+    });
+
     return {
-      id: group.id,
-      status: GroupStatus.SORTEADO,
-      sorteadoAt,
+      group: {
+        id: group.id,
+        status: GroupStatus.SORTEADO,
+        sorteadoAt,
+      },
+      participantAccessTokens,
     };
   });

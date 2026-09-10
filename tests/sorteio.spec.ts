@@ -6,6 +6,9 @@ const prismaMock = vi.hoisted(() => ({
   assignment: {
     createMany: vi.fn(),
   },
+  participantAccess: {
+    createMany: vi.fn(),
+  },
   group: {
     findFirst: vi.fn(),
     updateMany: vi.fn(),
@@ -49,10 +52,17 @@ type StoredAssignment = {
   authTag: string;
 };
 
+type StoredParticipantAccess = {
+  participantId: string;
+  tokenHash: string;
+  expiresAt: Date;
+};
+
 const groups = new Map<string, StoredGroup>();
 const participants = new Map<string, StoredParticipant>();
 const restrictions: StoredRestriction[] = [];
 const assignments = new Map<string, StoredAssignment>();
+const participantAccesses = new Map<string, StoredParticipantAccess>();
 const cuid = (number: number): string =>
   `c${number.toString().padStart(24, '0')}`;
 
@@ -88,6 +98,7 @@ beforeEach(() => {
   participants.clear();
   restrictions.length = 0;
   assignments.clear();
+  participantAccesses.clear();
 
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
@@ -121,9 +132,21 @@ beforeEach(() => {
 
     return { count: data.length };
   });
+  prismaMock.participantAccess.createMany.mockImplementation(async ({ data }) => {
+    for (const access of data) {
+      if ([...participantAccesses.values()].some(({ tokenHash }) => tokenHash === access.tokenHash)) {
+        throw new Error('Participant access token already exists.');
+      }
+
+      participantAccesses.set(access.participantId, access);
+    }
+
+    return { count: data.length };
+  });
   prismaMock.$transaction.mockImplementation(async (callback) =>
     callback({
       assignment: prismaMock.assignment,
+      participantAccess: prismaMock.participantAccess,
       group: prismaMock.group,
       participant: prismaMock.participant,
       restriction: prismaMock.restriction,
@@ -214,6 +237,7 @@ describe('POST /groups/:groupId/sorteio', () => {
     expect(group.status).toBe('SORTEADO');
     expect(group.sorteadoAt).toBeInstanceOf(Date);
     expect(assignments.size).toBe(3);
+    expect(participantAccesses.size).toBe(3);
     expect([...assignments.keys()].sort()).toEqual(
       [participantAId, participantBId, participantCId].sort(),
     );
@@ -239,6 +263,13 @@ describe('POST /groups/:groupId/sorteio', () => {
     }
 
     expect(receivers.size).toBe(3);
+
+    for (const [participantId, access] of participantAccesses) {
+      expect([participantAId, participantBId, participantCId]).toContain(participantId);
+      expect(access).not.toHaveProperty('token');
+      expect(access.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(access.expiresAt).toBeInstanceOf(Date);
+    }
   });
 
   it('does not create a sorteio without a valid assignment', async () => {

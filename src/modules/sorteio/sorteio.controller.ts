@@ -33,7 +33,7 @@ export const viability: RequestHandler = async (request, response, next) => {
 
 export const sorteio: RequestHandler = async (request, response, next) => {
   try {
-    const group = await sortearGrupo(
+    const { group } = await sortearGrupo(
       parseGroupId(request.params),
       getAuthenticatedUserId(request as AuthenticatedRequest),
     );
