@@ -21,5 +21,7 @@ export const errorHandler: ErrorRequestHandler = (
   const statusCode = isExpectedError ? error.statusCode : 500;
   const message = isExpectedError ? error.message : 'Internal server error.';
 
-  response.status(statusCode).json({ message });
+  response.status(statusCode).json(
+    isExpectedError && error.code ? { error: error.code } : { message },
+  );
 };

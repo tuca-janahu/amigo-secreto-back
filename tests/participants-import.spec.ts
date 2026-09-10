@@ -22,7 +22,7 @@ import { app } from '../src/app.js';
 type StoredGroup = {
   id: string;
   ownerId: string;
-  status: 'DRAFT' | 'READY' | 'DRAWN' | 'CANCELLED';
+  status: 'DRAFT' | 'READY' | 'SORTEADO' | 'CANCELLED';
 };
 
 type StoredParticipant = {

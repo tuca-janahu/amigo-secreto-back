@@ -10,12 +10,12 @@ datasource db {
 enum GroupStatus {
   DRAFT
   READY
-  DRAWN
+  SORTEADO
   CANCELLED
 }
 
 enum NotificationType {
-  DRAW_INVITATION
+  SORTEIO_INVITATION
 }
 
 enum NotificationChannel {
@@ -44,7 +44,7 @@ model Group {
   ownerId     String
   name        String
   status      GroupStatus @default(DRAFT)
-  drawnAt     DateTime?
+  sorteadoAt  DateTime?
   cancelledAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt

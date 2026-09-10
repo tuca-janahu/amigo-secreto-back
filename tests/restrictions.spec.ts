@@ -26,7 +26,7 @@ import { app } from '../src/app.js';
 type StoredGroup = {
   id: string;
   ownerId: string;
-  status: 'DRAFT' | 'READY' | 'DRAWN' | 'CANCELLED';
+  status: 'DRAFT' | 'READY' | 'SORTEADO' | 'CANCELLED';
 };
 
 type StoredParticipant = {
@@ -304,7 +304,7 @@ describe('restrictions', () => {
       const groupId = cuid(1);
       const participantAId = cuid(10);
       const participantBId = cuid(11);
-      addGroup(groupId, 'owner-1', 'DRAWN');
+      addGroup(groupId, 'owner-1', 'SORTEADO');
       addParticipant(participantAId, groupId, 'Lucas');
       addParticipant(participantBId, groupId, 'Maria');
 

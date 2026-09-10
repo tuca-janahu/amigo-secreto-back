@@ -22,7 +22,7 @@ import { app } from '../src/app.js';
 type StoredGroup = {
   id: string;
   ownerId: string;
-  status: 'DRAFT' | 'READY' | 'DRAWN' | 'CANCELLED';
+  status: 'DRAFT' | 'READY' | 'SORTEADO' | 'CANCELLED';
 };
 
 type StoredParticipant = {
@@ -363,7 +363,7 @@ describe('participants', () => {
         .set('Cookie', authCookie('owner-1'))
         .send({ name: 'Lucas', email: 'lucas@email.com' });
 
-      group.status = 'DRAWN';
+      group.status = 'SORTEADO';
       const statusResponse = await request(app)
         .delete(`/groups/${groupId}/participants/${created.body.participant.id}`)
         .set('Cookie', authCookie('owner-1'));

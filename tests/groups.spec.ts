@@ -20,7 +20,7 @@ type StoredGroup = {
   id: string;
   ownerId: string;
   name: string;
-  status: 'DRAFT' | 'READY' | 'DRAWN' | 'CANCELLED';
+  status: 'DRAFT' | 'READY' | 'SORTEADO' | 'CANCELLED';
   createdAt: Date;
   updatedAt: Date;
 };
@@ -204,7 +204,7 @@ describe('groups', () => {
       const response = await request(app)
         .patch(`/groups/${id}`)
         .set('Cookie', authCookie('owner-1'))
-        .send({ name: '  New name  ', status: 'DRAWN' });
+        .send({ name: '  New name  ', status: 'SORTEADO' });
 
       expect(response.status).toBe(200);
       expect(response.body.group).toMatchObject({ id, name: 'New name', status: 'DRAFT' });
@@ -224,7 +224,7 @@ describe('groups', () => {
 
     it('rejects renaming a group outside DRAFT', async () => {
       const id = groupId(1);
-      addGroup(id, 'owner-1', 'Drawn group', 'DRAWN');
+      addGroup(id, 'owner-1', 'Sorteado group', 'SORTEADO');
 
       const response = await request(app)
         .patch(`/groups/${id}`)
