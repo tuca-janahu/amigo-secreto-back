@@ -3,13 +3,14 @@ import { Prisma } from '@prisma/client';
 
 import { AppError } from '../../lib/app-error.js';
 import { prisma } from '../../lib/prisma.js';
-import type { Credentials } from './auth.schemas.js';
+import type { Credentials, RegistrationInput } from './auth.schemas.js';
 import type { PublicUser } from './auth.types.js';
 
 const BCRYPT_SALT_ROUNDS = 12;
 
 const publicUserSelect = {
   id: true,
+  name: true,
   email: true,
 } satisfies Prisma.UserSelect;
 
@@ -17,9 +18,10 @@ const isUniqueConstraintError = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
 export const registerUser = async ({
+  name,
   email,
   password,
-}: Credentials): Promise<PublicUser> => {
+}: RegistrationInput): Promise<PublicUser> => {
   const existingUser = await prisma.user.findUnique({
     where: { email },
     select: { id: true },
@@ -33,7 +35,7 @@ export const registerUser = async ({
 
   try {
     return await prisma.user.create({
-      data: { email, passwordHash },
+      data: { name, email, passwordHash },
       select: publicUserSelect,
     });
   } catch (error) {
@@ -61,7 +63,7 @@ export const authenticateUser = async ({
     throw new AppError(401, 'Invalid credentials.');
   }
 
-  return { id: user.id, email: user.email };
+  return { id: user.id, name: user.name, email: user.email };
 };
 
 export const getUserById = async (userId: string): Promise<PublicUser | null> =>

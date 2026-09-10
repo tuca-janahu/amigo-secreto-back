@@ -5,4 +5,9 @@ export const credentialsSchema = z.object({
   password: z.string().min(8),
 });
 
+export const registrationSchema = credentialsSchema.extend({
+  name: z.string().trim().min(1).max(100),
+});
+
 export type Credentials = z.infer<typeof credentialsSchema>;
+export type RegistrationInput = z.infer<typeof registrationSchema>;

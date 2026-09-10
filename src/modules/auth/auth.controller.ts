@@ -7,7 +7,7 @@ import {
   createAuthToken,
 } from '../../lib/auth-token.js';
 import { AppError } from '../../lib/app-error.js';
-import { credentialsSchema } from './auth.schemas.js';
+import { credentialsSchema, registrationSchema } from './auth.schemas.js';
 import {
   authenticateUser,
   getUserById,
@@ -32,6 +32,16 @@ const getCredentials = (body: unknown) => {
   return parsedCredentials.data;
 };
 
+const getRegistrationData = (body: unknown) => {
+  const parsedRegistration = registrationSchema.safeParse(body);
+
+  if (!parsedRegistration.success) {
+    throw new AppError(400, 'Invalid request data.');
+  }
+
+  return parsedRegistration.data;
+};
+
 const setAuthCookie = (response: Parameters<RequestHandler>[1], userId: string) => {
   response.cookie(AUTH_COOKIE_NAME, createAuthToken(userId), {
     ...authCookieOptions,
@@ -41,7 +51,7 @@ const setAuthCookie = (response: Parameters<RequestHandler>[1], userId: string) 
 
 export const register: RequestHandler = async (request, response, next) => {
   try {
-    const user = await registerUser(getCredentials(request.body));
+    const user = await registerUser(getRegistrationData(request.body));
 
     response.status(201).json({ user });
   } catch (error) {

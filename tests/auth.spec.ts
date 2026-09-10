@@ -15,15 +15,21 @@ import { app } from '../src/app.js';
 
 type StoredUser = {
   id: string;
+  name: string;
   email: string;
   passwordHash: string;
 };
 
 const users = new Map<string, StoredUser>();
 
-const addUser = async (email: string, password: string): Promise<StoredUser> => {
+const addUser = async (
+  email: string,
+  password: string,
+  name = 'Existing User',
+): Promise<StoredUser> => {
   const user = {
     id: `user-${users.size + 1}`,
+    name,
     email,
     passwordHash: await bcrypt.hash(password, 4),
   };
@@ -59,17 +65,18 @@ beforeEach(() => {
       return user;
     }
 
-    return { id: user.id, email: user.email };
+    return { id: user.id, name: user.name, email: user.email };
   });
   prismaMock.user.create.mockImplementation(async ({ data }) => {
     const user = {
       id: `user-${users.size + 1}`,
+      name: data.name,
       email: data.email,
       passwordHash: data.passwordHash,
     };
 
     users.set(user.email, user);
-    return { id: user.id, email: user.email };
+    return { id: user.id, name: user.name, email: user.email };
   });
 });
 
@@ -77,13 +84,14 @@ describe('auth', () => {
   describe('POST /auth/register', () => {
     it('creates a user with normalized email and does not expose passwordHash', async () => {
       const response = await request(app).post('/auth/register').send({
+        name: '  Artur  ',
         email: '  User@Email.com  ',
         password: 'secure-password',
       });
 
       expect(response.status).toBe(201);
       expect(response.body).toEqual({
-        user: { id: 'user-1', email: 'user@email.com' },
+        user: { id: 'user-1', name: 'Artur', email: 'user@email.com' },
       });
       expect(response.body.user.passwordHash).toBeUndefined();
 
@@ -96,6 +104,7 @@ describe('auth', () => {
 
     it('rejects an invalid email', async () => {
       const response = await request(app).post('/auth/register').send({
+        name: 'Artur',
         email: 'invalid-email',
         password: 'secure-password',
       });
@@ -105,8 +114,19 @@ describe('auth', () => {
 
     it('rejects a password shorter than eight characters', async () => {
       const response = await request(app).post('/auth/register').send({
+        name: 'Artur',
         email: 'user@email.com',
         password: 'short',
+      });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('rejects an empty name', async () => {
+      const response = await request(app).post('/auth/register').send({
+        name: '   ',
+        email: 'user@email.com',
+        password: 'secure-password',
       });
 
       expect(response.status).toBe(400);
@@ -116,6 +136,7 @@ describe('auth', () => {
       await addUser('user@email.com', 'secure-password');
 
       const response = await request(app).post('/auth/register').send({
+        name: 'Artur',
         email: 'user@email.com',
         password: 'another-password',
       });
@@ -126,7 +147,7 @@ describe('auth', () => {
 
   describe('POST /auth/login', () => {
     it('authenticates valid credentials and configures an HTTP-only cookie', async () => {
-      await addUser('user@email.com', 'secure-password');
+      await addUser('user@email.com', 'secure-password', 'Artur');
 
       const response = await request(app).post('/auth/login').send({
         email: 'USER@EMAIL.COM',
@@ -135,14 +156,14 @@ describe('auth', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
-        user: { id: 'user-1', email: 'user@email.com' },
+        user: { id: 'user-1', name: 'Artur', email: 'user@email.com' },
       });
       expect(response.headers['set-cookie']?.[0]).toContain('HttpOnly');
       expect(response.headers['set-cookie']?.[0]).toContain('SameSite=Lax');
     });
 
     it('returns the same generic error for invalid passwords and unknown users', async () => {
-      await addUser('user@email.com', 'secure-password');
+      await addUser('user@email.com', 'secure-password', 'Artur');
 
       const invalidPassword = await request(app).post('/auth/login').send({
         email: 'user@email.com',
@@ -162,7 +183,7 @@ describe('auth', () => {
 
   describe('GET /auth/me', () => {
     it('returns the authenticated user', async () => {
-      await addUser('user@email.com', 'secure-password');
+      await addUser('user@email.com', 'secure-password', 'Artur');
       const loginResponse = await request(app).post('/auth/login').send({
         email: 'user@email.com',
         password: 'secure-password',
@@ -174,7 +195,7 @@ describe('auth', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
-        user: { id: 'user-1', email: 'user@email.com' },
+        user: { id: 'user-1', name: 'Artur', email: 'user@email.com' },
       });
     });
 
