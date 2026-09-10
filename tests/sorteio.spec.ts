@@ -21,7 +21,15 @@ const prismaMock = vi.hoisted(() => ({
   },
 }));
 
+const notificationMock = vi.hoisted(() => ({
+  listInvitationStatuses: vi.fn(),
+  resendInvitation: vi.fn(),
+  resendPendingInvitations: vi.fn(),
+  sendInitialInvitations: vi.fn(),
+}));
+
 vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/modules/notifications/notifications.service.js', () => notificationMock);
 
 import { createAuthToken } from '../src/lib/auth-token.js';
 import { decryptSorteioResult } from '../src/lib/data-protection.js';
@@ -99,6 +107,7 @@ beforeEach(() => {
   restrictions.length = 0;
   assignments.clear();
   participantAccesses.clear();
+  notificationMock.sendInitialInvitations.mockResolvedValue([]);
 
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
@@ -242,6 +251,14 @@ describe('POST /groups/:groupId/sorteio', () => {
       [participantAId, participantBId, participantCId].sort(),
     );
     expect(prismaMock.$transaction).toHaveBeenCalledOnce();
+    expect(notificationMock.sendInitialInvitations).toHaveBeenCalledWith(
+      groupId,
+      expect.arrayContaining([
+        expect.objectContaining({ participantId: participantAId }),
+        expect.objectContaining({ participantId: participantBId }),
+        expect.objectContaining({ participantId: participantCId }),
+      ]),
+    );
 
     const receivers = new Set<string>();
 

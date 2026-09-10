@@ -13,6 +13,9 @@ const environmentSchema = z.object({
     .string()
     .url('DATABASE_URL deve ser uma URL de conexão válida.'),
   FRONTEND_URL: z.string().url('FRONTEND_URL deve ser uma URL válida.'),
+  RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY deve ser informada.'),
+  EMAIL_FROM: z.string().min(1, 'EMAIL_FROM deve ser informado.'),
+  APP_URL: z.string().url('APP_URL deve ser uma URL válida.'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET deve ter ao menos 32 caracteres.'),
   DATA_ENCRYPTION_KEY: z
     .string()
@@ -58,6 +61,9 @@ export const config = Object.freeze({
   port: environment.PORT,
   databaseUrl: environment.DATABASE_URL,
   frontendUrl: environment.FRONTEND_URL,
+  resendApiKey: environment.RESEND_API_KEY,
+  emailFrom: environment.EMAIL_FROM,
+  appUrl: environment.APP_URL,
   jwtSecret: environment.JWT_SECRET,
   dataEncryptionKey: environment.DATA_ENCRYPTION_KEY,
   sorteioEncryptionKey: environment.SORTEIO_ENCRYPTION_KEY,

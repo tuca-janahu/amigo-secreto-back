@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 
 import { AppError } from '../../lib/app-error.js';
 import type { AuthenticatedRequest } from '../auth/auth.types.js';
+import { sendInitialInvitations } from '../notifications/notifications.service.js';
 import { groupParamsSchema } from './sorteio.schemas.js';
 import { getSorteioViability, sortearGrupo } from './sorteio.service.js';
 
@@ -33,10 +34,12 @@ export const viability: RequestHandler = async (request, response, next) => {
 
 export const sorteio: RequestHandler = async (request, response, next) => {
   try {
-    const { group } = await sortearGrupo(
+    const { group, participantAccessTokens } = await sortearGrupo(
       parseGroupId(request.params),
       getAuthenticatedUserId(request as AuthenticatedRequest),
     );
+
+    await sendInitialInvitations(group.id, participantAccessTokens);
 
     response.status(200).json({ group });
   } catch (error) {
