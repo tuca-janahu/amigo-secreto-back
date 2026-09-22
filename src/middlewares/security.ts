@@ -49,7 +49,7 @@ export const requireTrustedOrigin: RequestHandler = (request, _response, next) =
   const origin = request.get('origin');
 
   // Origin ausente mantém compatibilidade com clientes não executados em navegador.
-  if (origin && origin !== config.frontendOrigin) {
+  if (origin && !config.corsOrigins.includes(origin)) {
     next(new AppError(403, 'Origem não permitida.'));
     return;
   }

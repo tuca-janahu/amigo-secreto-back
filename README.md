@@ -11,6 +11,7 @@ Copie `.env.example` para `.env` e informe todas as variáveis obrigatórias:
 - `PORT`: porta HTTP.
 - `DATABASE_URL`: conexão PostgreSQL.
 - `FRONTEND_URL`: origem exata autorizada pelo CORS e pela proteção de origem.
+- `CORS_ORIGINS`: origens adicionais autorizadas, separadas por vírgula (opcional).
 - `APP_URL`: URL pública usada nos links dos convites.
 - `JWT_SECRET`: segredo aleatório com ao menos 32 caracteres.
 - `DATA_ENCRYPTION_KEY`: chave AES-256 em Base64 para dados pessoais.

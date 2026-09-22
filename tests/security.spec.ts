@@ -29,19 +29,33 @@ describe('hardening HTTP', () => {
     expect(response.headers['x-powered-by']).toBeUndefined();
   });
 
-  it('permite somente a origem configurada no CORS', async () => {
-    const allowed = await request(app)
+  it('permite as origens configuradas no CORS', async () => {
+    const frontend = await request(app)
       .get('/health')
       .set('Origin', 'http://localhost:5173');
+    const additionalOrigin = await request(app)
+      .get('/health')
+      .set('Origin', 'https://preview.example');
     const denied = await request(app)
       .get('/health')
       .set('Origin', 'https://site-malicioso.example');
 
-    expect(allowed.headers['access-control-allow-origin']).toBe(
+    expect(frontend.headers['access-control-allow-origin']).toBe(
       'http://localhost:5173',
     );
-    expect(allowed.headers['access-control-allow-credentials']).toBe('true');
+    expect(frontend.headers['access-control-allow-credentials']).toBe('true');
+    expect(additionalOrigin.headers['access-control-allow-origin']).toBe(
+      'https://preview.example',
+    );
     expect(denied.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('aceita uma origem adicional em operação mutável', async () => {
+    const response = await request(app)
+      .post('/auth/logout')
+      .set('Origin', 'https://app.example');
+
+    expect(response.status).toBe(204);
   });
 
   it('rejeita corpo JSON acima de 100 kb', async () => {

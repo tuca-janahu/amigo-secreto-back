@@ -25,7 +25,10 @@ app.use(helmet());
 app.use(
   cors({
     origin: (origin, callback) => {
-      callback(null, origin === undefined || origin === config.frontendOrigin);
+      callback(
+        null,
+        origin === undefined || config.corsOrigins.includes(origin),
+      );
     },
     credentials: true,
   }),

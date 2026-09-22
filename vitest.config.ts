@@ -8,6 +8,7 @@ export default defineConfig({
       DATABASE_URL:
         'postgresql://postgres:postgres@localhost:5432/amigo_secreto_test?schema=public',
       FRONTEND_URL: 'http://localhost:5173',
+      CORS_ORIGINS: 'https://preview.example, https://app.example',
       RESEND_API_KEY: 'test-resend-api-key',
       EMAIL_FROM: 'Amigo Secreto <noreply@example.com>',
       APP_URL: 'http://localhost:5173',

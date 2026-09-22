@@ -3,6 +3,18 @@ import { z } from 'zod';
 
 dotenv.config();
 
+const urlListSchema = z
+  .string()
+  .transform((value) => value.split(',').map((url) => url.trim()))
+  .refine(
+    (urls) =>
+      urls.length > 0 &&
+      urls.every(
+        (url) => url.length > 0 && z.string().url().safeParse(url).success,
+      ),
+    'CORS_ORIGINS deve conter URLs válidas separadas por vírgula.',
+  );
+
 // Normalização dos dados da .env para os tipos corretos e validação de valores obrigatórios
 const environmentSchema = z.object({
   NODE_ENV: z
@@ -14,6 +26,7 @@ const environmentSchema = z.object({
     .string()
     .url('DATABASE_URL deve ser uma URL de conexão válida.'),
   FRONTEND_URL: z.string().url('FRONTEND_URL deve ser uma URL válida.'),
+  CORS_ORIGINS: urlListSchema.optional(),
   RESEND_API_KEY: z
     .string()
     .min(10, 'RESEND_API_KEY deve ter ao menos 10 caracteres.'),
@@ -58,6 +71,13 @@ if (!parsedEnvironment.success) {
 }
 
 const environment = parsedEnvironment.data;
+const frontendOrigin = new URL(environment.FRONTEND_URL).origin;
+const corsOrigins = Object.freeze([
+  ...new Set([
+    frontendOrigin,
+    ...(environment.CORS_ORIGINS ?? []).map((url) => new URL(url).origin),
+  ]),
+]);
 
 export const config = Object.freeze({
   nodeEnv: environment.NODE_ENV,
@@ -66,7 +86,8 @@ export const config = Object.freeze({
     environment.TRUST_PROXY_HOPS ??
     (environment.NODE_ENV === 'production' ? 1 : 0),
   databaseUrl: environment.DATABASE_URL,
-  frontendOrigin: new URL(environment.FRONTEND_URL).origin,
+  frontendOrigin,
+  corsOrigins,
   resendApiKey: environment.RESEND_API_KEY,
   emailFrom: environment.EMAIL_FROM,
   appUrl: environment.APP_URL,
