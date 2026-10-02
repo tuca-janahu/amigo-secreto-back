@@ -38,6 +38,11 @@ export const messageCreationRateLimiter = createRateLimiter(
   'Limite de mensagens atingido. Tente novamente em alguns minutos.',
 );
 
+export const feedbackRateLimiter = createRateLimiter(
+  5,
+  'Limite de feedbacks atingido. Tente novamente em alguns minutos.',
+);
+
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE']);
 
 export const requireTrustedOrigin: RequestHandler = (request, _response, next) => {

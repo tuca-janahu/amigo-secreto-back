@@ -27,7 +27,7 @@ describe('Resend invitation email', () => {
       expect.objectContaining({
         from: 'Amigo Secreto <noreply@example.com>',
         to: 'lucas@email.com',
-        subject: '🎁 Seu amigo secreto já foi sorteado',
+        subject: '🎁 Lucas, seu amigo secreto já foi sorteado',
         html: expect.stringContaining('http://localhost:5173/s/individual-token'),
       }),
     );

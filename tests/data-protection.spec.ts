@@ -22,8 +22,11 @@ describe('data protection', () => {
 
   it('rejects modified ciphertexts', () => {
     const encrypted = encryptData('Lucas Silva');
-    const replacement = encrypted.endsWith('A') ? 'B' : 'A';
-    const modified = `${encrypted.slice(0, -1)}${replacement}`;
+    const parts = encrypted.split(':');
+    const ciphertext = parts[3];
+    const replacement = ciphertext.startsWith('A') ? 'B' : 'A';
+    parts[3] = `${replacement}${ciphertext.slice(1)}`;
+    const modified = parts.join(':');
 
     expect(() => decryptData(modified)).toThrow(
       'Unable to decrypt protected data.',

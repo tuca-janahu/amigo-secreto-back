@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { config } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { feedbackRouter } from './modules/feedback/feedback.routes.js';
 import { groupsRouter } from './modules/groups/groups.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -36,6 +37,7 @@ app.use(
 app.use(express.json({ limit: '100kb' }));
 
 app.use('/auth', authRouter);
+app.use('/feedback', feedbackRouter);
 app.use('/groups', groupsRouter);
 app.use('/groups', participantsRouter);
 app.use('/groups', restrictionsRouter);

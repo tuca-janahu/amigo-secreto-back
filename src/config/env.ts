@@ -31,6 +31,9 @@ const environmentSchema = z.object({
     .string()
     .min(10, 'RESEND_API_KEY deve ter ao menos 10 caracteres.'),
   EMAIL_FROM: z.string().min(1, 'EMAIL_FROM deve ser informado.'),
+  FEEDBACK_EMAIL_TO: z
+    .string()
+    .email('FEEDBACK_EMAIL_TO deve ser um e-mail válido.'),
   APP_URL: z.string().url('APP_URL deve ser uma URL válida.'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET deve ter ao menos 32 caracteres.'),
   DATA_ENCRYPTION_KEY: z
@@ -90,6 +93,7 @@ export const config = Object.freeze({
   corsOrigins,
   resendApiKey: environment.RESEND_API_KEY,
   emailFrom: environment.EMAIL_FROM,
+  feedbackEmailTo: environment.FEEDBACK_EMAIL_TO,
   appUrl: environment.APP_URL,
   jwtSecret: environment.JWT_SECRET,
   dataEncryptionKey: environment.DATA_ENCRYPTION_KEY,

@@ -1,8 +1,5 @@
-import { Resend } from 'resend';
-
 import { config } from '../../config/env.js';
-
-const resend = new Resend(config.resendApiKey);
+import { resend } from '../../lib/resend.js';
 
 const escapeHtml = (value: string): string =>
   value.replace(/[&<>'"]/g, (character) => {

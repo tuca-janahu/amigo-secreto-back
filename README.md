@@ -19,6 +19,7 @@ Copie `.env.example` para `.env` e informe todas as variáveis obrigatórias:
 - `EMAIL_LOOKUP_SECRET`: segredo aleatório com ao menos 32 caracteres.
 - `RESEND_API_KEY`: chave da API do Resend.
 - `EMAIL_FROM`: remetente validado no Resend.
+- `FEEDBACK_EMAIL_TO`: endereço que receberá os relatos de bugs e sugestões.
 - `TRUST_PROXY_HOPS`: quantidade de proxies confiáveis até a API. O padrão é `1`
   em produção (Coolify) e `0` nos demais ambientes.
 
@@ -60,6 +61,12 @@ não executa migrations automaticamente no startup.
 ```json
 { "status": "ok" }
 ```
+
+## Feedback
+
+`POST /feedback` recebe relatos anônimos de bugs e sugestões e os encaminha por
+e-mail. O endpoint não persiste o conteúdo nem aceita identificadores de usuário,
+IDs de grupos ou tokens de participantes.
 
 ## Validação
 
