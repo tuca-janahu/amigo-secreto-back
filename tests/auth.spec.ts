@@ -3,13 +3,25 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   user: {
     create: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
+  passwordResetToken: {
+    create: vi.fn(),
+    deleteMany: vi.fn(),
     findUnique: vi.fn(),
   },
 }));
 
+const sendPasswordResetEmailMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/modules/auth/password-reset-email.service.js', () => ({
+  sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
 
 import { app } from '../src/app.js';
 import { authRateLimiter } from '../src/middlewares/security.js';
@@ -22,6 +34,16 @@ type StoredUser = {
 };
 
 const users = new Map<string, StoredUser>();
+
+type StoredPasswordResetToken = {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  createdAt: Date;
+};
+
+const passwordResetTokens = new Map<string, StoredPasswordResetToken>();
 
 const addUser = async (
   email: string,
@@ -52,8 +74,14 @@ const getAuthCookie = (setCookie: string[] | undefined): string => {
 };
 
 beforeEach(() => {
+  vi.clearAllMocks();
   authRateLimiter.resetKey('127.0.0.1');
   users.clear();
+  passwordResetTokens.clear();
+  sendPasswordResetEmailMock.mockResolvedValue(undefined);
+  prismaMock.$transaction.mockImplementation(async (callback) =>
+    callback(prismaMock),
+  );
   prismaMock.user.findUnique.mockImplementation(async ({ where, select }) => {
     const user = where.email
       ? users.get(where.email)
@@ -80,6 +108,52 @@ beforeEach(() => {
     users.set(user.email, user);
     return { id: user.id, name: user.name, email: user.email };
   });
+  prismaMock.user.update.mockImplementation(async ({ where, data }) => {
+    const user = [...users.values()].find(({ id }) => id === where.id);
+
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    Object.assign(user, data);
+    return user;
+  });
+  prismaMock.passwordResetToken.create.mockImplementation(async ({ data }) => {
+    const token = {
+      id: `password-reset-${passwordResetTokens.size + 1}`,
+      userId: data.userId,
+      tokenHash: data.tokenHash,
+      expiresAt: data.expiresAt,
+      createdAt: new Date(),
+    };
+
+    passwordResetTokens.set(token.tokenHash, token);
+    return token;
+  });
+  prismaMock.passwordResetToken.findUnique.mockImplementation(
+    async ({ where }) => passwordResetTokens.get(where.tokenHash) ?? null,
+  );
+  prismaMock.passwordResetToken.deleteMany.mockImplementation(
+    async ({ where }) => {
+      const matchingTokens = [...passwordResetTokens.values()].filter(
+        (token) => {
+          if (where.userId && token.userId !== where.userId) return false;
+          if (where.tokenHash && token.tokenHash !== where.tokenHash) return false;
+          if (where.id && token.id !== where.id) return false;
+          if (where.expiresAt?.gt && token.expiresAt <= where.expiresAt.gt) {
+            return false;
+          }
+          return true;
+        },
+      );
+
+      for (const token of matchingTokens) {
+        passwordResetTokens.delete(token.tokenHash);
+      }
+
+      return { count: matchingTokens.length };
+    },
+  );
 });
 
 describe('auth', () => {
@@ -236,6 +310,125 @@ describe('auth', () => {
 
       expect(response.status).toBe(204);
       expect(response.headers['set-cookie']?.[0]).toContain('auth_token=;');
+    });
+  });
+
+  describe('POST /auth/forgot-password', () => {
+    it('creates a one-hour hashed token and sends the original token by email', async () => {
+      await addUser('user@email.com', 'secure-password', 'Artur');
+      const beforeRequest = Date.now();
+
+      const response = await request(app).post('/auth/forgot-password').send({
+        email: '  USER@EMAIL.COM  ',
+      });
+
+      expect(response.status).toBe(202);
+      expect(response.body).toEqual({
+        message:
+          'Se existir uma conta com este e-mail, enviaremos um link para redefinir a senha.',
+      });
+      expect(sendPasswordResetEmailMock).toHaveBeenCalledOnce();
+
+      const { token } = sendPasswordResetEmailMock.mock.calls[0][0];
+      const storedToken = [...passwordResetTokens.values()][0];
+      expect(storedToken.tokenHash).not.toBe(token);
+      expect(storedToken.expiresAt.getTime()).toBeGreaterThanOrEqual(
+        beforeRequest + 60 * 60 * 1000,
+      );
+      expect(storedToken.expiresAt.getTime()).toBeLessThanOrEqual(
+        Date.now() + 60 * 60 * 1000,
+      );
+    });
+
+    it('returns the same response for an unknown email without sending an email', async () => {
+      const response = await request(app).post('/auth/forgot-password').send({
+        email: 'unknown@email.com',
+      });
+
+      expect(response.status).toBe(202);
+      expect(response.body).toEqual({
+        message:
+          'Se existir uma conta com este e-mail, enviaremos um link para redefinir a senha.',
+      });
+      expect(sendPasswordResetEmailMock).not.toHaveBeenCalled();
+    });
+
+    it('replaces an earlier token for the same user', async () => {
+      await addUser('user@email.com', 'secure-password');
+
+      await request(app)
+        .post('/auth/forgot-password')
+        .send({ email: 'user@email.com' });
+      const firstTokenHash = [...passwordResetTokens.keys()][0];
+      await request(app)
+        .post('/auth/forgot-password')
+        .send({ email: 'user@email.com' });
+
+      expect(passwordResetTokens.size).toBe(1);
+      expect(passwordResetTokens.has(firstTokenHash)).toBe(false);
+    });
+
+    it('keeps the generic response and removes the token when email sending fails', async () => {
+      await addUser('user@email.com', 'secure-password');
+      sendPasswordResetEmailMock.mockRejectedValueOnce(
+        new Error('Provider unavailable'),
+      );
+
+      const response = await request(app).post('/auth/forgot-password').send({
+        email: 'user@email.com',
+      });
+
+      expect(response.status).toBe(202);
+      expect(passwordResetTokens.size).toBe(0);
+    });
+  });
+
+  describe('POST /auth/reset-password', () => {
+    it('changes the password and consumes the token only once', async () => {
+      const user = await addUser('user@email.com', 'secure-password');
+      await request(app)
+        .post('/auth/forgot-password')
+        .send({ email: user.email });
+      const { token } = sendPasswordResetEmailMock.mock.calls[0][0];
+
+      const response = await request(app).post('/auth/reset-password').send({
+        token,
+        password: 'new-secure-password',
+      });
+      const reusedTokenResponse = await request(app)
+        .post('/auth/reset-password')
+        .send({ token, password: 'another-secure-password' });
+
+      expect(response.status).toBe(204);
+      await expect(
+        bcrypt.compare('new-secure-password', user.passwordHash),
+      ).resolves.toBe(true);
+      expect(passwordResetTokens.size).toBe(0);
+      expect(reusedTokenResponse.status).toBe(400);
+      expect(reusedTokenResponse.body).toEqual({
+        message: 'Link de redefinição inválido ou expirado.',
+      });
+    });
+
+    it('rejects expired and unknown tokens with the same error', async () => {
+      await addUser('user@email.com', 'secure-password');
+      await request(app)
+        .post('/auth/forgot-password')
+        .send({ email: 'user@email.com' });
+      const { token } = sendPasswordResetEmailMock.mock.calls[0][0];
+      const storedToken = [...passwordResetTokens.values()][0];
+      storedToken.expiresAt = new Date(Date.now() - 1);
+
+      const expiredResponse = await request(app)
+        .post('/auth/reset-password')
+        .send({ token, password: 'new-secure-password' });
+      const unknownResponse = await request(app)
+        .post('/auth/reset-password')
+        .send({ token: 'unknown-token', password: 'new-secure-password' });
+
+      expect(expiredResponse.status).toBe(400);
+      expect(unknownResponse.status).toBe(400);
+      expect(expiredResponse.body).toEqual(unknownResponse.body);
     });
   });
 });
