@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import { AppError } from '../../lib/app-error.js';
 import {
+  createEmailLookupHash,
   decryptData,
   decryptSorteioResult,
 } from '../../lib/data-protection.js';
@@ -18,6 +19,8 @@ const participantAccessSelect = {
   participant: {
     select: {
       nameEncrypted: true,
+      emailLookupHash: true,
+      userId: true,
       group: {
         select: {
           id: true,
@@ -61,6 +64,64 @@ const registerFirstAccess = async (accessId: string): Promise<void> => {
     where: { id: accessId, firstAccessedAt: null },
     data: { firstAccessedAt: new Date() },
   });
+};
+
+const participationAlreadyClaimedError = (): AppError =>
+  new AppError(409, 'Esta participação já está vinculada a outra conta.');
+
+export const claimParticipantAccess = async (token: string, userId: string) => {
+  const access = await getValidAccess(token);
+  await registerFirstAccess(access.id);
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  if (!user) {
+    throw new AppError(401, 'Não autorizado.');
+  }
+
+  if (createEmailLookupHash(user.email) !== access.participant.emailLookupHash) {
+    throw new AppError(403, 'Use uma conta com o mesmo e-mail do convite.');
+  }
+
+  if (access.participant.userId !== null && access.participant.userId !== userId) {
+    throw participationAlreadyClaimedError();
+  }
+
+  if (access.participant.userId === null) {
+    try {
+      const claimed = await prisma.participant.updateMany({
+        where: { id: access.participantId, userId: null },
+        data: { userId },
+      });
+
+      if (claimed.count === 0) {
+        const participant = await prisma.participant.findUnique({
+          where: { id: access.participantId },
+          select: { userId: true },
+        });
+
+        if (participant?.userId !== userId) {
+          throw participationAlreadyClaimedError();
+        }
+      }
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw participationAlreadyClaimedError();
+      }
+
+      throw error;
+    }
+  }
+
+  return {
+    groupId: access.participant.group.id,
+    participantId: access.participantId,
+  };
 };
 
 export const getParticipantAccessGroup = async (token: string) => {
@@ -129,6 +190,75 @@ export const revealParticipantAccess = async (token: string) => {
       result: { name: decryptData(receiver.nameEncrypted) },
       revealedAt: revealedAccess.revealedAt,
     };
+  }
+
+  return {
+    result: { name: decryptData(receiver.nameEncrypted) },
+    revealedAt,
+  };
+};
+
+export const revealLinkedParticipantAccess = async (
+  groupId: string,
+  userId: string,
+) => {
+  const participant = await prisma.participant.findFirst({
+    where: { groupId, userId },
+    select: {
+      id: true,
+      assignment: {
+        select: {
+          encryptedResult: true,
+          iv: true,
+          authTag: true,
+        },
+      },
+      accesses: {
+        where: { revealedAt: { not: null } },
+        orderBy: { revealedAt: 'asc' },
+        take: 1,
+        select: { revealedAt: true },
+      },
+    },
+  });
+
+  if (!participant?.assignment) {
+    throw new AppError(404, 'Grupo não encontrado.');
+  }
+
+  const { receiverParticipantId } = decryptSorteioResult(participant.assignment);
+  const receiver = await prisma.participant.findFirst({
+    where: { id: receiverParticipantId, groupId },
+    select: { nameEncrypted: true },
+  });
+
+  if (!receiver) {
+    throw new AppError(404, 'Grupo não encontrado.');
+  }
+
+  let revealedAt = participant.accesses[0]?.revealedAt ?? null;
+
+  if (!revealedAt) {
+    const firstRevealAt = new Date();
+    const revealUpdate = await prisma.participantAccess.updateMany({
+      where: { participantId: participant.id, revealedAt: null },
+      data: { revealedAt: firstRevealAt },
+    });
+
+    if (revealUpdate.count > 0) {
+      revealedAt = firstRevealAt;
+    } else {
+      const revealedAccess = await prisma.participantAccess.findFirst({
+        where: { participantId: participant.id, revealedAt: { not: null } },
+        orderBy: { revealedAt: 'asc' },
+        select: { revealedAt: true },
+      });
+      revealedAt = revealedAccess?.revealedAt ?? null;
+    }
+  }
+
+  if (!revealedAt) {
+    throw new AppError(404, 'Grupo não encontrado.');
   }
 
   return {

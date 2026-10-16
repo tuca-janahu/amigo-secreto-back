@@ -8,9 +8,10 @@ import {
   participantAccessMessageParamsSchema,
 } from './messages.schemas.js';
 import {
+  createAuthenticatedParticipantMessage,
   createParticipantMessage,
   deleteOwnerMessage,
-  listOwnerMessages,
+  listAuthenticatedMessages,
   listParticipantMessages,
 } from './messages.service.js';
 
@@ -76,11 +77,34 @@ export const createForParticipant: RequestHandler = async (request, response, ne
 
 export const listForOwner: RequestHandler = async (request, response, next) => {
   try {
-    const messages = await listOwnerMessages(
+    const messages = await listAuthenticatedMessages(
       parseGroupId(request.params),
       getAuthenticatedUserId(request as AuthenticatedRequest),
     );
     response.status(200).json({ messages });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createForAuthenticatedParticipant: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
+  try {
+    const parsedBody = createMessageSchema.safeParse(request.body);
+
+    if (!parsedBody.success) {
+      throw new AppError(400, 'Dados da requisição inválidos.');
+    }
+
+    const message = await createAuthenticatedParticipantMessage(
+      parseGroupId(request.params),
+      getAuthenticatedUserId(request as AuthenticatedRequest),
+      parsedBody.data,
+    );
+    response.status(201).json({ message });
   } catch (error) {
     next(error);
   }
