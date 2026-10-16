@@ -31,6 +31,7 @@ type StoredParticipant = {
   nameEncrypted: string;
   emailEncrypted: string;
   emailLookupHash: string;
+  userId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -60,7 +61,9 @@ beforeEach(() => {
 
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
-    return group?.ownerId === where.ownerId ? group : null;
+    return group?.ownerId === where.ownerId
+      ? { ...group, owner: { email: `${group.ownerId}@email.com` } }
+      : null;
   });
   prismaMock.participant.findFirst.mockImplementation(async ({ where }) => {
     const participant = [...participants.values()].find(
@@ -84,6 +87,7 @@ beforeEach(() => {
     const participant = {
       id: cuid(participants.size + 100),
       ...data,
+      userId: data.userId ?? null,
       createdAt: now,
       updatedAt: now,
     };
@@ -171,6 +175,19 @@ describe('POST /groups/:groupId/participants/import', () => {
     expect(response.body.message).toContain('linha 2');
     expect(participants.size).toBe(0);
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('links an imported participant whose email matches the owner', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+
+    const response = await request(app)
+      .post(`/groups/${groupId}/participants/import`)
+      .set('Cookie', authCookie('owner-1'))
+      .send({ data: 'Owner\tOWNER-1@email.com' });
+
+    expect(response.status).toBe(201);
+    expect([...participants.values()][0]?.userId).toBe('owner-1');
   });
 
   it('rejects duplicate emails in the same paste without persisting', async () => {
