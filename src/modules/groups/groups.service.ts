@@ -1,6 +1,7 @@
 import { GroupStatus, Prisma } from '@prisma/client';
 
 import { AppError } from '../../lib/app-error.js';
+import { decryptData } from '../../lib/data-protection.js';
 import { prisma } from '../../lib/prisma.js';
 import type { CreateGroupInput, UpdateGroupInput } from './groups.schemas.js';
 
@@ -51,15 +52,89 @@ export const createGroup = async (
     select: createdGroupSelect,
   });
 
-export const listGroups = async (ownerId: string) =>
-  prisma.group.findMany({
-    where: { ownerId },
+const accessibleGroupSelect = (userId: string) =>
+  ({
+    ...groupListSelect,
+    ownerId: true,
+    participants: {
+      where: { userId },
+      take: 1,
+      select: {
+        id: true,
+        nameEncrypted: true,
+        accesses: {
+          where: { revealedAt: { not: null } },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    },
+  }) satisfies Prisma.GroupSelect;
+
+const toAccessibleGroup = <
+  T extends {
+    id: string;
+    name: string;
+    status: GroupStatus;
+    createdAt: Date;
+    updatedAt: Date;
+    ownerId: string;
+    participants: Array<{
+      id: string;
+      nameEncrypted: string;
+      accesses: Array<{ id: string }>;
+    }>;
+  },
+>(group: T, userId: string) => {
+  const participant = group.participants[0];
+
+  return {
+    id: group.id,
+    name: group.name,
+    status: group.status,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    roles: [
+      ...(group.ownerId === userId ? (['OWNER'] as const) : []),
+      ...(participant ? (['PARTICIPANT'] as const) : []),
+    ],
+    participant: participant
+      ? {
+          id: participant.id,
+          name: decryptData(participant.nameEncrypted),
+          revealed: participant.accesses.length > 0,
+        }
+      : null,
+  };
+};
+
+export const listGroups = async (userId: string) => {
+  const groups = await prisma.group.findMany({
+    where: {
+      OR: [{ ownerId: userId }, { participants: { some: { userId } } }],
+    },
     orderBy: { createdAt: 'desc' },
-    select: groupListSelect,
+    select: accessibleGroupSelect(userId),
   });
 
-export const getGroup = async (groupId: string, ownerId: string) =>
-  getOwnedGroup(groupId, ownerId);
+  return groups.map((group) => toAccessibleGroup(group, userId));
+};
+
+export const getGroup = async (groupId: string, userId: string) => {
+  const group = await prisma.group.findFirst({
+    where: {
+      id: groupId,
+      OR: [{ ownerId: userId }, { participants: { some: { userId } } }],
+    },
+    select: accessibleGroupSelect(userId),
+  });
+
+  if (!group) {
+    throw new AppError(404, 'Grupo não encontrado.');
+  }
+
+  return toAccessibleGroup(group, userId);
+};
 
 export const renameGroup = async (
   groupId: string,

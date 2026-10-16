@@ -14,6 +14,7 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
 
 import { createAuthToken } from '../src/lib/auth-token.js';
+import { encryptData } from '../src/lib/data-protection.js';
 import { app } from '../src/app.js';
 
 type StoredGroup = {
@@ -26,6 +27,10 @@ type StoredGroup = {
 };
 
 const groups = new Map<string, StoredGroup>();
+const participations = new Map<
+  string,
+  { id: string; groupId: string; userId: string; nameEncrypted: string; revealed: boolean }
+>();
 const groupId = (number: number): string => `c${number.toString().padStart(24, '0')}`;
 
 const toPublicGroup = ({
@@ -65,8 +70,40 @@ const addGroup = (
   return group;
 };
 
+const addParticipation = (
+  id: string,
+  groupIdValue: string,
+  userId: string,
+  name: string,
+  revealed = false,
+) => {
+  participations.set(id, {
+    id,
+    groupId: groupIdValue,
+    userId,
+    nameEncrypted: encryptData(name),
+    revealed,
+  });
+};
+
+const toAccessibleGroup = (group: StoredGroup, userId: string) => ({
+  ...toPublicGroup(group),
+  ownerId: group.ownerId,
+  participants: [...participations.values()]
+    .filter(
+      (participant) =>
+        participant.groupId === group.id && participant.userId === userId,
+    )
+    .map((participant) => ({
+      id: participant.id,
+      nameEncrypted: participant.nameEncrypted,
+      accesses: participant.revealed ? [{ id: `access-${participant.id}` }] : [],
+    })),
+});
+
 beforeEach(() => {
   groups.clear();
+  participations.clear();
   prismaMock.group.create.mockImplementation(async ({ data }) => {
     const now = new Date();
     const group = addGroup(groupId(groups.size + 1), data.ownerId, data.name, data.status, now);
@@ -78,20 +115,41 @@ beforeEach(() => {
       createdAt: group.createdAt,
     };
   });
-  prismaMock.group.findMany.mockImplementation(async ({ where }) =>
-    [...groups.values()]
-      .filter((group) => group.ownerId === where.ownerId)
+  prismaMock.group.findMany.mockImplementation(async ({ where }) => {
+    const userId = where.OR[0].ownerId;
+
+    return [...groups.values()]
+      .filter(
+        (group) =>
+          group.ownerId === userId ||
+          [...participations.values()].some(
+            (participant) =>
+              participant.groupId === group.id && participant.userId === userId,
+          ),
+      )
       .sort((first, second) => second.createdAt.getTime() - first.createdAt.getTime())
-      .map(toPublicGroup),
-  );
+      .map((group) => toAccessibleGroup(group, userId));
+  });
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
 
-    if (!group || group.ownerId !== where.ownerId) {
+    if (!group) {
       return null;
     }
 
-    return toPublicGroup(group);
+    if (where.ownerId) {
+      return group.ownerId === where.ownerId ? toPublicGroup(group) : null;
+    }
+
+    const userId = where.OR[0].ownerId;
+    const isParticipant = [...participations.values()].some(
+      (participant) =>
+        participant.groupId === group.id && participant.userId === userId,
+    );
+
+    return group.ownerId === userId || isParticipant
+      ? toAccessibleGroup(group, userId)
+      : null;
   });
   prismaMock.group.update.mockImplementation(async ({ where, data }) => {
     const group = groups.get(where.id);
@@ -164,6 +222,43 @@ describe('groups', () => {
         groupId(2),
         groupId(1),
       ]);
+      expect(response.body.groups[0]).toMatchObject({
+        roles: ['OWNER'],
+        participant: null,
+      });
+    });
+
+    it('includes linked participations and deduplicates a group with both roles', async () => {
+      const participantGroupId = groupId(1);
+      const dualRoleGroupId = groupId(2);
+      addGroup(participantGroupId, 'owner-2', 'Participant group');
+      addGroup(dualRoleGroupId, 'user-1', 'Dual role group');
+      addParticipation('participant-1', participantGroupId, 'user-1', 'Lucas', true);
+      addParticipation('participant-2', dualRoleGroupId, 'user-1', 'Lucas');
+
+      const response = await request(app)
+        .get('/groups')
+        .set('Cookie', authCookie('user-1'));
+
+      expect(response.status).toBe(200);
+      expect(response.body.groups).toHaveLength(2);
+      expect(response.body.groups).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: participantGroupId,
+            roles: ['PARTICIPANT'],
+            participant: {
+              id: 'participant-1',
+              name: 'Lucas',
+              revealed: true,
+            },
+          }),
+          expect.objectContaining({
+            id: dualRoleGroupId,
+            roles: ['OWNER', 'PARTICIPANT'],
+          }),
+        ]),
+      );
     });
   });
 
@@ -177,7 +272,29 @@ describe('groups', () => {
         .set('Cookie', authCookie('owner-1'));
 
       expect(response.status).toBe(200);
-      expect(response.body.group).toMatchObject({ id, name: 'Grupo' });
+      expect(response.body.group).toMatchObject({
+        id,
+        name: 'Grupo',
+        roles: ['OWNER'],
+        participant: null,
+      });
+    });
+
+    it('allows a linked participant to get a group', async () => {
+      const id = groupId(1);
+      addGroup(id, 'owner-1', 'Grupo');
+      addParticipation('participant-1', id, 'user-1', 'Lucas');
+
+      const response = await request(app)
+        .get(`/groups/${id}`)
+        .set('Cookie', authCookie('user-1'));
+
+      expect(response.status).toBe(200);
+      expect(response.body.group).toMatchObject({
+        id,
+        roles: ['PARTICIPANT'],
+        participant: { id: 'participant-1', name: 'Lucas', revealed: false },
+      });
     });
 
     it('returns 404 for another user group and for a missing group', async () => {

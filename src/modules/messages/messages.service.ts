@@ -41,6 +41,42 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
   return group;
 };
 
+const getMessageGroupForUser = async (groupId: string, userId: string) => {
+  const group = await prisma.group.findFirst({
+    where: {
+      id: groupId,
+      OR: [
+        { ownerId: userId },
+        { status: GroupStatus.SORTEADO, participants: { some: { userId } } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  if (!group) {
+    throw new AppError(404, 'Grupo não encontrado.');
+  }
+
+  return group;
+};
+
+const getParticipantGroupForUser = async (groupId: string, userId: string) => {
+  const group = await prisma.group.findFirst({
+    where: {
+      id: groupId,
+      status: GroupStatus.SORTEADO,
+      participants: { some: { userId } },
+    },
+    select: { id: true },
+  });
+
+  if (!group) {
+    throw new AppError(404, 'Grupo não encontrado.');
+  }
+
+  return group;
+};
+
 export const listParticipantMessages = async (token: string) => {
   const group = await getParticipantMessageGroup(token);
 
@@ -63,12 +99,25 @@ export const createParticipantMessage = async (
   });
 };
 
-export const listOwnerMessages = async (groupId: string, ownerId: string) => {
-  const group = await getOwnedGroup(groupId, ownerId);
+export const listAuthenticatedMessages = async (groupId: string, userId: string) => {
+  const group = await getMessageGroupForUser(groupId, userId);
 
   return prisma.anonymousMessage.findMany({
     where: { groupId: group.id, deletedAt: null },
     orderBy: { createdAt: 'asc' },
+    select: messageSelect,
+  });
+};
+
+export const createAuthenticatedParticipantMessage = async (
+  groupId: string,
+  userId: string,
+  { content }: CreateMessageInput,
+): Promise<PublicMessage> => {
+  const group = await getParticipantGroupForUser(groupId, userId);
+
+  return prisma.anonymousMessage.create({
+    data: { groupId: group.id, content },
     select: messageSelect,
   });
 };
