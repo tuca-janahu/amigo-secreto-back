@@ -20,6 +20,7 @@ import {
 const ownedGroupSelect = {
   id: true,
   status: true,
+  owner: { select: { email: true } },
 } satisfies Prisma.GroupSelect;
 
 const protectedParticipantSelect = {
@@ -27,6 +28,7 @@ const protectedParticipantSelect = {
   nameEncrypted: true,
   emailEncrypted: true,
   emailLookupHash: true,
+  userId: true,
   createdAt: true,
 } satisfies Prisma.ParticipantSelect;
 
@@ -98,12 +100,23 @@ const toParticipantIdentity = ({ name, email }: CreateParticipantInput): Partici
 const toProtectedParticipantData = (
   groupId: string,
   participant: ParticipantIdentity,
+  ownerId?: string,
 ) => ({
   groupId,
   nameEncrypted: encryptData(participant.name),
   emailEncrypted: encryptData(participant.email),
   emailLookupHash: participant.emailLookupHash,
+  ...(ownerId ? { userId: ownerId } : {}),
 });
+
+const matchingOwnerId = (
+  ownerId: string,
+  ownerEmail: string,
+  participant: ParticipantIdentity,
+) =>
+  createEmailLookupHash(ownerEmail) === participant.emailLookupHash
+    ? ownerId
+    : undefined;
 
 const isUniqueConstraintError = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -125,7 +138,11 @@ export const createParticipant = async (
   try {
     const participant = await prisma.participant.create({
       data: {
-        ...toProtectedParticipantData(group.id, participantIdentity),
+        ...toProtectedParticipantData(
+          group.id,
+          participantIdentity,
+          matchingOwnerId(ownerId, group.owner.email, participantIdentity),
+        ),
       },
       select: protectedParticipantSelect,
     });
@@ -195,7 +212,11 @@ export const importParticipants = async (
       Promise.all(
         participantIdentities.map((participantIdentity) =>
           transaction.participant.create({
-            data: toProtectedParticipantData(group.id, participantIdentity),
+            data: toProtectedParticipantData(
+              group.id,
+              participantIdentity,
+              matchingOwnerId(ownerId, group.owner.email, participantIdentity),
+            ),
             select: protectedParticipantSelect,
           }),
         ),
@@ -261,6 +282,14 @@ export const updateParticipant = async (
 
     data.emailEncrypted = encryptData(normalizedEmail);
     data.emailLookupHash = emailLookupHash;
+
+    if (emailLookupHash === createEmailLookupHash(group.owner.email)) {
+      if (participant.userId === null || participant.userId === ownerId) {
+        data.user = { connect: { id: ownerId } };
+      }
+    } else if (participant.userId === ownerId) {
+      data.user = { disconnect: true };
+    }
   }
 
   try {

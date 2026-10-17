@@ -48,6 +48,7 @@ type StoredMessage = {
 };
 
 const groups = new Map<string, StoredGroup>();
+const linkedParticipants = new Map<string, Set<string>>();
 const accesses = new Map<string, StoredAccess>();
 const messages = new Map<string, StoredMessage>();
 const cuid = (number: number): string =>
@@ -79,6 +80,12 @@ const addAccess = (token: string, groupId: string): StoredAccess => {
   return access;
 };
 
+const linkParticipant = (groupId: string, userId: string): void => {
+  const users = linkedParticipants.get(groupId) ?? new Set<string>();
+  users.add(userId);
+  linkedParticipants.set(groupId, users);
+};
+
 const addMessage = (
   id: string,
   groupId: string,
@@ -100,12 +107,38 @@ beforeEach(() => {
   messageCreationRateLimiter.resetKey('127.0.0.1');
   vi.clearAllMocks();
   groups.clear();
+  linkedParticipants.clear();
   accesses.clear();
   messages.clear();
 
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
-    return group?.ownerId === where.ownerId ? group : null;
+
+    if (!group) {
+      return null;
+    }
+
+    if (where.ownerId) {
+      return group.ownerId === where.ownerId ? group : null;
+    }
+
+    const participantUserId = where.participants?.some?.userId;
+
+    if (participantUserId) {
+      return group.status === where.status &&
+        linkedParticipants.get(group.id)?.has(participantUserId)
+        ? group
+        : null;
+    }
+
+    const ownerId = where.OR?.[0]?.ownerId;
+    const linkedUserId = where.OR?.[1]?.participants?.some?.userId;
+    const isOwner = group.ownerId === ownerId;
+    const isEligibleParticipant =
+      group.status === where.OR?.[1]?.status &&
+      linkedParticipants.get(group.id)?.has(linkedUserId);
+
+    return isOwner || isEligibleParticipant ? group : null;
   });
   prismaMock.participantAccess.findUnique.mockImplementation(async ({ where }) => {
     const access = [...accesses.values()].find(
@@ -319,6 +352,39 @@ describe('owner anonymous messages', () => {
     const response = await request(app)
       .get(`/groups/${groupId}/messages`)
       .set('Cookie', authCookie('owner-1'));
+
+    expect(response.status).toBe(404);
+  });
+
+  it('allows a linked participant to list and create anonymous messages', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+    linkParticipant(groupId, 'user-1');
+    addMessage(cuid(10), groupId, 'Existing message');
+
+    const listResponse = await request(app)
+      .get(`/groups/${groupId}/messages`)
+      .set('Cookie', authCookie('user-1'));
+    const createResponse = await request(app)
+      .post(`/groups/${groupId}/messages`)
+      .set('Cookie', authCookie('user-1'))
+      .send({ content: '  Anonymous from my account  ' });
+
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.body.messages).toHaveLength(1);
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.body.message.content).toBe('Anonymous from my account');
+    expect(messages.get(createResponse.body.message.id)).not.toHaveProperty('userId');
+  });
+
+  it('does not allow an owner without a linked participation to post anonymously', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+
+    const response = await request(app)
+      .post(`/groups/${groupId}/messages`)
+      .set('Cookie', authCookie('owner-1'))
+      .send({ content: 'Not a participant' });
 
     expect(response.status).toBe(404);
   });

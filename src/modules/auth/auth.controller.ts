@@ -7,11 +7,18 @@ import {
   createAuthToken,
 } from '../../lib/auth-token.js';
 import { AppError } from '../../lib/app-error.js';
-import { credentialsSchema, registrationSchema } from './auth.schemas.js';
+import {
+  credentialsSchema,
+  forgotPasswordSchema,
+  registrationSchema,
+  resetPasswordSchema,
+} from './auth.schemas.js';
 import {
   authenticateUser,
   getUserById,
   registerUser,
+  requestPasswordReset,
+  resetPassword as resetUserPassword,
 } from './auth.service.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 
@@ -92,4 +99,45 @@ export const getCurrentUser: RequestHandler = async (
 export const logout: RequestHandler = (_request, response) => {
   response.clearCookie(AUTH_COOKIE_NAME, authCookieOptions);
   response.status(204).send();
+};
+
+export const forgotPassword: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
+  try {
+    const parsedInput = forgotPasswordSchema.safeParse(request.body);
+
+    if (!parsedInput.success) {
+      throw new AppError(400, 'Dados da requisição inválidos.');
+    }
+
+    await requestPasswordReset(parsedInput.data);
+    response.status(202).json({
+      message:
+        'Se existir uma conta com este e-mail, enviaremos um link para redefinir a senha.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetPassword: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
+  try {
+    const parsedInput = resetPasswordSchema.safeParse(request.body);
+
+    if (!parsedInput.success) {
+      throw new AppError(400, 'Dados da requisição inválidos.');
+    }
+
+    await resetUserPassword(parsedInput.data);
+    response.status(204).send();
+  } catch (error) {
+    next(error);
+  }
 };

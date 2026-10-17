@@ -7,6 +7,7 @@ import {
   requireTrustedOrigin,
 } from '../../middlewares/security.js';
 import {
+  createForAuthenticatedParticipant,
   createForParticipant,
   listForOwner,
   listForParticipant,
@@ -29,4 +30,9 @@ participantMessagesRouter.post(
 
 ownerMessagesRouter.use(requireAuth, requireTrustedOrigin);
 ownerMessagesRouter.get('/:groupId/messages', listForOwner);
+ownerMessagesRouter.post(
+  '/:groupId/messages',
+  messageCreationRateLimiter,
+  createForAuthenticatedParticipant,
+);
 ownerMessagesRouter.delete('/:groupId/messages/:messageId', removeForOwner);

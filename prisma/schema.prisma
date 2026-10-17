@@ -37,7 +37,22 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  groups Group[]
+  groups              Group[]
+  participations      Participant[]
+  passwordResetTokens PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Group {
@@ -62,6 +77,7 @@ model Group {
 model Participant {
   id              String   @id @default(cuid())
   groupId         String
+  userId          String?
   nameEncrypted   String
   emailEncrypted  String
   emailLookupHash String
@@ -69,6 +85,7 @@ model Participant {
   updatedAt       DateTime @updatedAt
 
   group                 Group               @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user                  User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
   assignment            Assignment?
   accesses              ParticipantAccess[]
   notifications         Notification[]
@@ -76,7 +93,9 @@ model Participant {
   restrictionsForbidden Restriction[]       @relation("RestrictionForbidden")
 
   @@unique([groupId, emailLookupHash])
+  @@unique([groupId, userId])
   @@index([emailLookupHash])
+  @@index([userId])
 }
 
 // The service layer must ensure both participants belong to groupId.
