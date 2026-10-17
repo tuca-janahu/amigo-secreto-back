@@ -31,6 +31,7 @@ type StoredParticipant = {
   nameEncrypted: string;
   emailEncrypted: string;
   emailLookupHash: string;
+  userId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -64,7 +65,9 @@ beforeEach(() => {
 
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
-    return group?.ownerId === where.ownerId ? group : null;
+    return group?.ownerId === where.ownerId
+      ? { ...group, owner: { email: `${group.ownerId}@email.com` } }
+      : null;
   });
   prismaMock.participant.findFirst.mockImplementation(async ({ where }) => {
     const participant = [...participants.values()].find((storedParticipant) => {
@@ -89,6 +92,7 @@ beforeEach(() => {
     const participant = addParticipant({
       id: cuid(participants.size + 100),
       ...data,
+      userId: data.userId ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -102,7 +106,12 @@ beforeEach(() => {
       throw new Error('Participant not found.');
     }
 
-    Object.assign(participant, data, { updatedAt: new Date() });
+    const { user, ...scalarData } = data;
+    Object.assign(participant, scalarData, { updatedAt: new Date() });
+
+    if (user?.connect) participant.userId = user.connect.id;
+    if (user?.disconnect) participant.userId = null;
+
     return participant;
   });
   prismaMock.participant.delete.mockImplementation(async ({ where }) => {
@@ -165,6 +174,21 @@ describe('participants', () => {
 
       expect(duplicateResponse.status).toBe(409);
       expect(otherGroupResponse.status).toBe(201);
+    });
+
+    it('links the owner immediately when the participant email matches', async () => {
+      const groupId = cuid(1);
+      addGroup(groupId, 'owner-1');
+
+      const response = await request(app)
+        .post(`/groups/${groupId}/participants`)
+        .set('Cookie', authCookie('owner-1'))
+        .send({ name: 'Owner', email: ' OWNER-1@email.com ' });
+
+      expect(response.status).toBe(201);
+      expect(participants.get(response.body.participant.id)?.userId).toBe(
+        'owner-1',
+      );
     });
 
     it('returns 404 when another user tries to add a participant', async () => {
@@ -335,6 +359,28 @@ describe('participants', () => {
 
       expect(duplicateResponse.status).toBe(409);
       expect(statusResponse.status).toBe(409);
+    });
+
+    it('links and unlinks the owner when the participant email changes', async () => {
+      const groupId = cuid(1);
+      addGroup(groupId, 'owner-1');
+      const created = await request(app)
+        .post(`/groups/${groupId}/participants`)
+        .set('Cookie', authCookie('owner-1'))
+        .send({ name: 'Owner', email: 'other@email.com' });
+      const participantId = created.body.participant.id;
+
+      await request(app)
+        .patch(`/groups/${groupId}/participants/${participantId}`)
+        .set('Cookie', authCookie('owner-1'))
+        .send({ email: 'owner-1@email.com' });
+      expect(participants.get(participantId)?.userId).toBe('owner-1');
+
+      await request(app)
+        .patch(`/groups/${groupId}/participants/${participantId}`)
+        .set('Cookie', authCookie('owner-1'))
+        .send({ email: 'another@email.com' });
+      expect(participants.get(participantId)?.userId).toBeNull();
     });
   });
 

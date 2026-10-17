@@ -13,6 +13,7 @@ import {
   getGroup,
   listGroups,
   renameGroup,
+  syncOwnerParticipations,
 } from './groups.service.js';
 
 const getAuthenticatedUserId = (request: AuthenticatedRequest): string =>
@@ -54,6 +55,22 @@ export const list: RequestHandler = async (request, response, next) => {
     );
 
     response.status(200).json({ groups });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const syncParticipations: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
+  try {
+    const result = await syncOwnerParticipations(
+      getAuthenticatedUserId(request as AuthenticatedRequest),
+    );
+
+    response.status(200).json(result);
   } catch (error) {
     next(error);
   }

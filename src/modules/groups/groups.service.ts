@@ -1,7 +1,10 @@
 import { GroupStatus, Prisma } from '@prisma/client';
 
 import { AppError } from '../../lib/app-error.js';
-import { decryptData } from '../../lib/data-protection.js';
+import {
+  createEmailLookupHash,
+  decryptData,
+} from '../../lib/data-protection.js';
 import { prisma } from '../../lib/prisma.js';
 import type { CreateGroupInput, UpdateGroupInput } from './groups.schemas.js';
 
@@ -118,6 +121,31 @@ export const listGroups = async (userId: string) => {
   });
 
   return groups.map((group) => toAccessibleGroup(group, userId));
+};
+
+export const syncOwnerParticipations = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  if (!user) {
+    throw new AppError(401, 'Não autorizado.');
+  }
+
+  const result = await prisma.participant.updateMany({
+    where: {
+      userId: null,
+      emailLookupHash: createEmailLookupHash(user.email),
+      group: {
+        ownerId: userId,
+        participants: { none: { userId } },
+      },
+    },
+    data: { userId },
+  });
+
+  return { linked: result.count };
 };
 
 export const getGroup = async (groupId: string, userId: string) => {

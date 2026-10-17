@@ -9,12 +9,21 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(),
     update: vi.fn(),
   },
+  participant: {
+    updateMany: vi.fn(),
+  },
+  user: {
+    findUnique: vi.fn(),
+  },
 }));
 
 vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
 
 import { createAuthToken } from '../src/lib/auth-token.js';
-import { encryptData } from '../src/lib/data-protection.js';
+import {
+  createEmailLookupHash,
+  encryptData,
+} from '../src/lib/data-protection.js';
 import { app } from '../src/app.js';
 
 type StoredGroup = {
@@ -29,7 +38,14 @@ type StoredGroup = {
 const groups = new Map<string, StoredGroup>();
 const participations = new Map<
   string,
-  { id: string; groupId: string; userId: string; nameEncrypted: string; revealed: boolean }
+  {
+    id: string;
+    groupId: string;
+    userId: string | null;
+    nameEncrypted: string;
+    emailLookupHash: string;
+    revealed: boolean;
+  }
 >();
 const groupId = (number: number): string => `c${number.toString().padStart(24, '0')}`;
 
@@ -76,13 +92,31 @@ const addParticipation = (
   userId: string,
   name: string,
   revealed = false,
+  email = `${userId}@email.com`,
 ) => {
   participations.set(id, {
     id,
     groupId: groupIdValue,
     userId,
     nameEncrypted: encryptData(name),
+    emailLookupHash: createEmailLookupHash(email),
     revealed,
+  });
+};
+
+const addUnlinkedParticipation = (
+  id: string,
+  groupIdValue: string,
+  name: string,
+  email: string,
+) => {
+  participations.set(id, {
+    id,
+    groupId: groupIdValue,
+    userId: null,
+    nameEncrypted: encryptData(name),
+    emailLookupHash: createEmailLookupHash(email),
+    revealed: false,
   });
 };
 
@@ -104,6 +138,33 @@ const toAccessibleGroup = (group: StoredGroup, userId: string) => ({
 beforeEach(() => {
   groups.clear();
   participations.clear();
+  prismaMock.user.findUnique.mockImplementation(async ({ where }) => ({
+    email: `${where.id}@email.com`,
+  }));
+  prismaMock.participant.updateMany.mockImplementation(async ({ where, data }) => {
+    let count = 0;
+
+    for (const participant of participations.values()) {
+      const group = groups.get(participant.groupId);
+      const groupAlreadyLinked = [...participations.values()].some(
+        (candidate) =>
+          candidate.groupId === participant.groupId &&
+          candidate.userId === data.userId,
+      );
+
+      if (
+        participant.userId === null &&
+        participant.emailLookupHash === where.emailLookupHash &&
+        group?.ownerId === data.userId &&
+        !groupAlreadyLinked
+      ) {
+        participant.userId = data.userId;
+        count += 1;
+      }
+    }
+
+    return { count };
+  });
   prismaMock.group.create.mockImplementation(async ({ data }) => {
     const now = new Date();
     const group = addGroup(groupId(groups.size + 1), data.ownerId, data.name, data.status, now);
@@ -259,6 +320,69 @@ describe('groups', () => {
           }),
         ]),
       );
+    });
+  });
+
+  describe('POST /groups/sync-owner-participations', () => {
+    it('links matching legacy owner participations and is idempotent', async () => {
+      const ownedGroupId = groupId(1);
+      addGroup(ownedGroupId, 'owner-1', 'Legacy group');
+      addUnlinkedParticipation(
+        'participant-1',
+        ownedGroupId,
+        'Owner',
+        'owner-1@email.com',
+      );
+
+      const firstResponse = await request(app)
+        .post('/groups/sync-owner-participations')
+        .set('Cookie', authCookie('owner-1'));
+      const secondResponse = await request(app)
+        .post('/groups/sync-owner-participations')
+        .set('Cookie', authCookie('owner-1'));
+
+      expect(firstResponse.status).toBe(200);
+      expect(firstResponse.body).toEqual({ linked: 1 });
+      expect(secondResponse.body).toEqual({ linked: 0 });
+      expect(participations.get('participant-1')?.userId).toBe('owner-1');
+
+      const groupsResponse = await request(app)
+        .get('/groups')
+        .set('Cookie', authCookie('owner-1'));
+      expect(groupsResponse.body.groups[0]).toMatchObject({
+        id: ownedGroupId,
+        roles: ['OWNER', 'PARTICIPANT'],
+        participant: { id: 'participant-1', name: 'Owner' },
+      });
+    });
+
+    it('ignores mismatched emails, other owners, and existing links', async () => {
+      const ownedGroupId = groupId(1);
+      const otherGroupId = groupId(2);
+      const linkedGroupId = groupId(3);
+      addGroup(ownedGroupId, 'owner-1', 'Mismatch');
+      addGroup(otherGroupId, 'owner-2', 'Other owner');
+      addGroup(linkedGroupId, 'owner-1', 'Already linked');
+      addUnlinkedParticipation('mismatch', ownedGroupId, 'Mismatch', 'other@email.com');
+      addUnlinkedParticipation('other-owner', otherGroupId, 'Owner', 'owner-1@email.com');
+      addParticipation('existing', linkedGroupId, 'owner-1', 'Existing');
+      addUnlinkedParticipation('duplicate', linkedGroupId, 'Duplicate', 'owner-1@email.com');
+
+      const response = await request(app)
+        .post('/groups/sync-owner-participations')
+        .set('Cookie', authCookie('owner-1'));
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ linked: 0 });
+      expect(participations.get('duplicate')?.userId).toBeNull();
+    });
+
+    it('rejects unauthenticated synchronization', async () => {
+      const response = await request(app).post(
+        '/groups/sync-owner-participations',
+      );
+
+      expect(response.status).toBe(401);
     });
   });
 
