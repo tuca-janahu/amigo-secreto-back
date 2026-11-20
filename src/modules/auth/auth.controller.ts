@@ -1,6 +1,7 @@
 import type { CookieOptions, RequestHandler } from 'express';
 
 import { config } from '../../config/env.js';
+import { isAdminUser } from '../admin/admin.access.js';
 import {
   AUTH_COOKIE_NAME,
   AUTH_TOKEN_MAX_AGE_MS,
@@ -49,7 +50,10 @@ const getRegistrationData = (body: unknown) => {
   return parsedRegistration.data;
 };
 
-const setAuthCookie = (response: Parameters<RequestHandler>[1], userId: string) => {
+const setAuthCookie = (
+  response: Parameters<RequestHandler>[1],
+  userId: string,
+) => {
   response.cookie(AUTH_COOKIE_NAME, createAuthToken(userId), {
     ...authCookieOptions,
     maxAge: AUTH_TOKEN_MAX_AGE_MS,
@@ -90,7 +94,9 @@ export const getCurrentUser: RequestHandler = async (
       throw new AppError(401, 'Não autorizado.');
     }
 
-    response.status(200).json({ user });
+    response
+      .status(200)
+      .json({ user: { ...user, isAdmin: isAdminUser(user.id) } });
   } catch (error) {
     next(error);
   }

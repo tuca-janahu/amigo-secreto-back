@@ -1,7 +1,10 @@
 import request from 'supertest';
+import { Prisma } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
+  auditEvent: { create: vi.fn() },
   group: {
     create: vi.fn(),
     delete: vi.fn(),
@@ -36,6 +39,7 @@ type StoredGroup = {
 };
 
 const groups = new Map<string, StoredGroup>();
+const auditEvents: Array<Record<string, unknown>> = [];
 const participations = new Map<
   string,
   {
@@ -47,7 +51,8 @@ const participations = new Map<
     revealed: boolean;
   }
 >();
-const groupId = (number: number): string => `c${number.toString().padStart(24, '0')}`;
+const groupId = (number: number): string =>
+  `c${number.toString().padStart(24, '0')}`;
 
 const toPublicGroup = ({
   id,
@@ -131,43 +136,72 @@ const toAccessibleGroup = (group: StoredGroup, userId: string) => ({
     .map((participant) => ({
       id: participant.id,
       nameEncrypted: participant.nameEncrypted,
-      accesses: participant.revealed ? [{ id: `access-${participant.id}` }] : [],
+      accesses: participant.revealed
+        ? [{ id: `access-${participant.id}` }]
+        : [],
     })),
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  auditEvents.length = 0;
+  prismaMock.auditEvent.create.mockImplementation(async ({ data }) => {
+    auditEvents.push({ ...data });
+    return { id: `event-${auditEvents.length}` };
+  });
+  prismaMock.$transaction.mockImplementation(async (callback) => {
+    const snapshot = structuredClone([...groups]);
+    const eventCount = auditEvents.length;
+    try {
+      return await callback(prismaMock);
+    } catch (error) {
+      groups.clear();
+      snapshot.forEach(([id, group]) => groups.set(id, group));
+      auditEvents.length = eventCount;
+      throw error;
+    }
+  });
   groups.clear();
   participations.clear();
   prismaMock.user.findUnique.mockImplementation(async ({ where }) => ({
+    name: 'Owner',
     email: `${where.id}@email.com`,
   }));
-  prismaMock.participant.updateMany.mockImplementation(async ({ where, data }) => {
-    let count = 0;
+  prismaMock.participant.updateMany.mockImplementation(
+    async ({ where, data }) => {
+      let count = 0;
 
-    for (const participant of participations.values()) {
-      const group = groups.get(participant.groupId);
-      const groupAlreadyLinked = [...participations.values()].some(
-        (candidate) =>
-          candidate.groupId === participant.groupId &&
-          candidate.userId === data.userId,
-      );
+      for (const participant of participations.values()) {
+        const group = groups.get(participant.groupId);
+        const groupAlreadyLinked = [...participations.values()].some(
+          (candidate) =>
+            candidate.groupId === participant.groupId &&
+            candidate.userId === data.userId,
+        );
 
-      if (
-        participant.userId === null &&
-        participant.emailLookupHash === where.emailLookupHash &&
-        group?.ownerId === data.userId &&
-        !groupAlreadyLinked
-      ) {
-        participant.userId = data.userId;
-        count += 1;
+        if (
+          participant.userId === null &&
+          participant.emailLookupHash === where.emailLookupHash &&
+          group?.ownerId === data.userId &&
+          !groupAlreadyLinked
+        ) {
+          participant.userId = data.userId;
+          count += 1;
+        }
       }
-    }
 
-    return { count };
-  });
+      return { count };
+    },
+  );
   prismaMock.group.create.mockImplementation(async ({ data }) => {
     const now = new Date();
-    const group = addGroup(groupId(groups.size + 1), data.ownerId, data.name, data.status, now);
+    const group = addGroup(
+      groupId(groups.size + 1),
+      data.ownerId,
+      data.name,
+      data.status,
+      now,
+    );
 
     return {
       id: group.id,
@@ -188,7 +222,10 @@ beforeEach(() => {
               participant.groupId === group.id && participant.userId === userId,
           ),
       )
-      .sort((first, second) => second.createdAt.getTime() - first.createdAt.getTime())
+      .sort(
+        (first, second) =>
+          second.createdAt.getTime() - first.createdAt.getTime(),
+      )
       .map((group) => toAccessibleGroup(group, userId));
   });
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
@@ -237,6 +274,137 @@ beforeEach(() => {
 });
 
 describe('groups', () => {
+  describe('audit trail', () => {
+    it.each(['rename', 'delete'])(
+      'reports a conflict for concurrent %s instead of recording success',
+      async (operation) => {
+        const id = groupId(1);
+        addGroup(id, 'owner-1', 'Original');
+        const conflict = new Prisma.PrismaClientKnownRequestError(
+          'Record changed',
+          { code: 'P2025', clientVersion: 'test' },
+        );
+        if (operation === 'rename')
+          prismaMock.group.update.mockRejectedValueOnce(conflict);
+        else prismaMock.group.delete.mockRejectedValueOnce(conflict);
+        const response =
+          operation === 'rename'
+            ? await request(app)
+                .patch(`/groups/${id}`)
+                .set('Cookie', authCookie('owner-1'))
+                .send({ name: 'Novo' })
+            : await request(app)
+                .delete(`/groups/${id}`)
+                .set('Cookie', authCookie('owner-1'));
+        expect(response.status).toBe(409);
+        expect(auditEvents).toEqual([]);
+      },
+    );
+
+    it('records the authenticated creator and the group name', async () => {
+      const response = await request(app)
+        .post('/groups')
+        .set('Cookie', authCookie('owner-1'))
+        .send({ name: 'Grupo novo', ownerId: 'forged-owner' });
+      expect(response.status).toBe(201);
+      expect(auditEvents).toEqual([
+        {
+          type: 'GROUP_CREATED',
+          actorUserId: 'owner-1',
+          actorName: 'Owner',
+          groupId: response.body.group.id,
+          groupName: 'Grupo novo',
+        },
+      ]);
+    });
+
+    it('preserves rename and deletion snapshots after the group is gone', async () => {
+      const id = groupId(1);
+      addGroup(id, 'owner-1', 'Original');
+      expect(
+        (
+          await request(app)
+            .patch(`/groups/${id}`)
+            .set('Cookie', authCookie('owner-1'))
+            .send({ name: 'Atualizado' })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await request(app)
+            .delete(`/groups/${id}`)
+            .set('Cookie', authCookie('owner-1'))
+        ).status,
+      ).toBe(204);
+      expect(groups.has(id)).toBe(false);
+      expect(auditEvents).toEqual([
+        {
+          type: 'GROUP_RENAMED',
+          actorUserId: 'owner-1',
+          actorName: 'Owner',
+          groupId: id,
+          groupName: 'Atualizado',
+        },
+        {
+          type: 'GROUP_DELETED',
+          actorUserId: 'owner-1',
+          actorName: 'Owner',
+          groupId: id,
+          groupName: 'Atualizado',
+        },
+      ]);
+    });
+
+    it.each(['create', 'rename', 'delete'])(
+      'aborts %s when audit persistence fails',
+      async (operation) => {
+        const id = groupId(1);
+        addGroup(id, 'owner-1', 'Original');
+        prismaMock.auditEvent.create.mockRejectedValueOnce(
+          new Error('Audit unavailable'),
+        );
+        const response =
+          operation === 'create'
+            ? await request(app)
+                .post('/groups')
+                .set('Cookie', authCookie('owner-1'))
+                .send({ name: 'Novo' })
+            : operation === 'rename'
+              ? await request(app)
+                  .patch(`/groups/${id}`)
+                  .set('Cookie', authCookie('owner-1'))
+                  .send({ name: 'Novo' })
+              : await request(app)
+                  .delete(`/groups/${id}`)
+                  .set('Cookie', authCookie('owner-1'));
+        expect(response.status).toBe(500);
+        expect(groups.size).toBe(1);
+        expect(groups.get(id)?.name).toBe('Original');
+        expect(auditEvents).toEqual([]);
+      },
+    );
+
+    it('does not record rejected actions', async () => {
+      const id = groupId(1);
+      addGroup(id, 'owner-1', 'Sorteado', 'SORTEADO');
+      expect(
+        (
+          await request(app)
+            .delete(`/groups/${id}`)
+            .set('Cookie', authCookie('owner-1'))
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await request(app)
+            .delete(`/groups/${id}`)
+            .set('Cookie', authCookie('other-owner'))
+        ).status,
+      ).toBe(404);
+      expect(auditEvents).toEqual([]);
+    });
+  });
+
   describe('POST /groups', () => {
     it('creates a DRAFT group for the authenticated user', async () => {
       const response = await request(app)
@@ -253,7 +421,9 @@ describe('groups', () => {
     });
 
     it('rejects unauthenticated requests', async () => {
-      const response = await request(app).post('/groups').send({ name: 'Grupo' });
+      const response = await request(app)
+        .post('/groups')
+        .send({ name: 'Grupo' });
 
       expect(response.status).toBe(401);
     });
@@ -279,10 +449,9 @@ describe('groups', () => {
         .set('Cookie', authCookie('owner-1'));
 
       expect(response.status).toBe(200);
-      expect(response.body.groups.map((group: { id: string }) => group.id)).toEqual([
-        groupId(2),
-        groupId(1),
-      ]);
+      expect(
+        response.body.groups.map((group: { id: string }) => group.id),
+      ).toEqual([groupId(2), groupId(1)]);
       expect(response.body.groups[0]).toMatchObject({
         roles: ['OWNER'],
         participant: null,
@@ -294,7 +463,13 @@ describe('groups', () => {
       const dualRoleGroupId = groupId(2);
       addGroup(participantGroupId, 'owner-2', 'Participant group');
       addGroup(dualRoleGroupId, 'user-1', 'Dual role group');
-      addParticipation('participant-1', participantGroupId, 'user-1', 'Lucas', true);
+      addParticipation(
+        'participant-1',
+        participantGroupId,
+        'user-1',
+        'Lucas',
+        true,
+      );
       addParticipation('participant-2', dualRoleGroupId, 'user-1', 'Lucas');
 
       const response = await request(app)
@@ -363,10 +538,25 @@ describe('groups', () => {
       addGroup(ownedGroupId, 'owner-1', 'Mismatch');
       addGroup(otherGroupId, 'owner-2', 'Other owner');
       addGroup(linkedGroupId, 'owner-1', 'Already linked');
-      addUnlinkedParticipation('mismatch', ownedGroupId, 'Mismatch', 'other@email.com');
-      addUnlinkedParticipation('other-owner', otherGroupId, 'Owner', 'owner-1@email.com');
+      addUnlinkedParticipation(
+        'mismatch',
+        ownedGroupId,
+        'Mismatch',
+        'other@email.com',
+      );
+      addUnlinkedParticipation(
+        'other-owner',
+        otherGroupId,
+        'Owner',
+        'owner-1@email.com',
+      );
       addParticipation('existing', linkedGroupId, 'owner-1', 'Existing');
-      addUnlinkedParticipation('duplicate', linkedGroupId, 'Duplicate', 'owner-1@email.com');
+      addUnlinkedParticipation(
+        'duplicate',
+        linkedGroupId,
+        'Duplicate',
+        'owner-1@email.com',
+      );
 
       const response = await request(app)
         .post('/groups/sync-owner-participations')
@@ -448,7 +638,11 @@ describe('groups', () => {
         .send({ name: '  New name  ', status: 'SORTEADO' });
 
       expect(response.status).toBe(200);
-      expect(response.body.group).toMatchObject({ id, name: 'New name', status: 'DRAFT' });
+      expect(response.body.group).toMatchObject({
+        id,
+        name: 'New name',
+        status: 'DRAFT',
+      });
     });
 
     it('returns 404 when another user tries to rename a group', async () => {
