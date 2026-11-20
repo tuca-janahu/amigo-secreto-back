@@ -40,6 +40,8 @@ model User {
   groups              Group[]
   participations      Participant[]
   passwordResetTokens PasswordResetToken[]
+
+  @@index([createdAt])
 }
 
 model PasswordResetToken {
@@ -72,6 +74,8 @@ model Group {
 
   @@index([ownerId])
   @@index([status])
+  @@index([createdAt])
+  @@index([sorteadoAt])
 }
 
 model Participant {
@@ -172,4 +176,29 @@ model Notification {
 
   @@index([participantId])
   @@index([status])
+  @@index([createdAt])
+}
+
+enum AuditEventType {
+  USER_REGISTERED
+  GROUP_CREATED
+  GROUP_RENAMED
+  SORTEIO_COMPLETED
+  GROUP_DELETED
+}
+
+// Snapshots intentionally have no foreign keys: deleting a group must retain its history.
+model AuditEvent {
+  id          String         @id @default(cuid())
+  type        AuditEventType
+  occurredAt  DateTime       @default(now())
+  actorUserId String
+  actorName   String
+  groupId     String?
+  groupName   String?
+
+  @@index([occurredAt, id])
+  @@index([actorUserId, occurredAt, id])
+  @@index([groupId, occurredAt, id])
+  @@index([type, occurredAt, id])
 }

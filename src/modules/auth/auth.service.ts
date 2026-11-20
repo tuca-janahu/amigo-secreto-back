@@ -10,6 +10,7 @@ import type {
   ResetPasswordInput,
 } from './auth.schemas.js';
 import type { PublicUser } from './auth.types.js';
+import { recordAuditEvent } from '../audit/audit.service.js';
 import { sendPasswordResetEmail } from './password-reset-email.service.js';
 import {
   generatePasswordResetToken,
@@ -26,7 +27,8 @@ const publicUserSelect = {
 } satisfies Prisma.UserSelect;
 
 const isUniqueConstraintError = (error: unknown): boolean =>
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  error.code === 'P2002';
 
 export const registerUser = async ({
   name,
@@ -45,9 +47,17 @@ export const registerUser = async ({
   const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
   try {
-    return await prisma.user.create({
-      data: { name, email, passwordHash },
-      select: publicUserSelect,
+    return await prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.create({
+        data: { name, email, passwordHash },
+        select: publicUserSelect,
+      });
+      await recordAuditEvent(transaction, {
+        type: 'USER_REGISTERED',
+        actorUserId: user.id,
+        actorName: user.name,
+      });
+      return user;
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -131,7 +141,10 @@ export const resetPassword = async ({
     select: { id: true, userId: true, expiresAt: true },
   });
 
-  if (!passwordResetToken || passwordResetToken.expiresAt.getTime() <= Date.now()) {
+  if (
+    !passwordResetToken ||
+    passwordResetToken.expiresAt.getTime() <= Date.now()
+  ) {
     throw invalidPasswordResetError();
   }
 

@@ -14,6 +14,8 @@ Copie `.env.example` para `.env` e informe todas as variáveis obrigatórias:
 - `CORS_ORIGINS`: origens adicionais autorizadas, separadas por vírgula (opcional).
 - `APP_URL`: URL pública usada nos links dos convites.
 - `JWT_SECRET`: segredo aleatório com ao menos 32 caracteres.
+- `ADMIN_USER_IDS`: IDs de contas existentes que podem consultar o painel,
+  separados por vírgulas (opcional; vazio significa nenhum administrador).
 - `DATA_ENCRYPTION_KEY`: chave AES-256 em Base64 para dados pessoais.
 - `SORTEIO_ENCRYPTION_KEY`: chave AES-256 distinta em Base64 para resultados.
 - `EMAIL_LOOKUP_SECRET`: segredo aleatório com ao menos 32 caracteres.
@@ -78,3 +80,137 @@ pnpm lint
 pnpm test
 pnpm build
 ```
+
+Os testes administrativos usam PGlite (PostgreSQL em memória) para validar a
+cadeia de migrations, as consultas de séries diárias e o rollback de auditoria,
+sem acessar `DATABASE_URL` e sem precisar de Docker.
+
+## Administração e auditoria
+
+O painel administrativo é somente de consulta. Para habilitá-lo, cadastre uma
+conta normalmente, faça login e obtenha seu ID em `GET /auth/me`. Configure esse
+ID no ambiente **do backend**, por exemplo:
+
+```dotenv
+ADMIN_USER_IDS="id-da-conta-1,id-da-conta-2"
+```
+
+Espaços são removidos e IDs duplicados são ignorados. A variável vazia ou ausente
+não concede privilégios a ninguém; IDs malformados impedem o startup. A aplicação
+não cria contas nem concede privilégios por e-mail. Alterações exigem reinício ou
+redeploy de todas as instâncias. A conta deve continuar existindo no banco.
+
+`GET /auth/me` acrescenta `user.isAdmin: boolean`. Login e registro mantêm seus
+contratos existentes. O frontend pode usar esse campo para exibir a aba, mas a
+autorização é sempre conferida pelo backend em cada requisição `/admin`.
+O login usa o mesmo cookie HttpOnly `auth_token` já existente. Uma sessão inválida
+ou uma conta inexistente recebe `401`; uma conta comum recebe `403`.
+Todas as respostas `/admin` incluem `Cache-Control: no-store`, inclusive erros.
+
+Antes de publicar o backend atualizado, aplique as migrations com
+`pnpm db:deploy`. A nova migration cria o histórico vazio e seus índices, sem
+alterar migrations anteriores nem reconstruir atividades antigas.
+
+### Contratos HTTP
+
+Todos os endpoints abaixo são `GET` e exigem uma conta administradora autenticada.
+Filtros desconhecidos, tipos inválidos e limites excedidos retornam `400`.
+
+| Endpoint              | Query parameters                                                   | Resposta                                                    |
+| --------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `/admin/overview`     | `from`, `to`                                                       | `period`, `totals`, `activity`, `engagement`, `invitations` |
+| `/admin/timeseries`   | `from`, `to`                                                       | `period`, `items: [{ date, users, groups, sorteios }]`      |
+| `/admin/users`        | `q`, `page`, `pageSize`                                            | Lista paginada de contas                                    |
+| `/admin/groups`       | `q`, `ownerId`, `status`, `page`, `pageSize`                       | Lista paginada de grupos                                    |
+| `/admin/audit-events` | `from`, `to`, `type`, `actorUserId`, `groupId`, `page`, `pageSize` | Lista paginada de eventos e `period`                        |
+
+`from` e `to` são datas `YYYY-MM-DD`, inclusivas, no fuso
+`America/Sao_Paulo`, entre `1970-01-01` e `9999-12-30`.
+O padrão é de 30 dias, terminando hoje nesse fuso.
+Se apenas `to` for informado, os 30 dias terminam nessa data; se apenas `from`
+for informado, o intervalo termina hoje. Aceita-se de 1 a 90 dias, incluindo
+as duas datas. Internamente as consultas usam início inclusivo e o início do
+dia seguinte ao fim como limite exclusivo. `period` contém `{ from, to, timeZone }`.
+
+As listas usam `{ items, page, pageSize, total }`, com página inicial `1`,
+20 itens por página por padrão, máximo de 100 e página máxima de 1.000.000.
+A ordenação é por data decrescente, com ID decrescente para desempate. Página
+além do último registro retorna `items: []` e preserva `total`.
+
+- **Contas:** cada item contém `id`, `name`, `email`, `createdAt`, `groupsCount`
+  e `sorteiosCount`. `q` pesquisa nome ou e-mail sem diferenciar maiúsculas.
+- **Grupos:** cada item contém `id`, `name`, `status`, `createdAt`, `sorteadoAt`,
+  `owner: { id, name, email }`, `participantsCount` e `revealedCount`.
+  `q` pesquisa o nome do grupo sem diferenciar maiúsculas. `status` aceita
+  `DRAFT`, `READY`, `SORTEADO` ou `CANCELLED`; esses valores não criam novos
+  fluxos de alteração de status.
+- **Eventos:** cada item contém `id`, `type`, `occurredAt`, `actorUserId`,
+  `actorName`, `groupId` e `groupName`. Os dois últimos campos são nulos para
+  cadastro de conta. Datas de registros são retornadas como timestamps ISO UTC.
+
+Exemplo de `GET /admin/overview?from=2026-11-01&to=2026-11-20`:
+
+```json
+{
+  "period": {
+    "from": "2026-11-01",
+    "to": "2026-11-20",
+    "timeZone": "America/Sao_Paulo"
+  },
+  "totals": {
+    "users": 10,
+    "groups": 8,
+    "sorteios": 4,
+    "participations": 20,
+    "groupsByStatus": { "DRAFT": 4, "READY": 0, "SORTEADO": 4, "CANCELLED": 0 }
+  },
+  "activity": { "newUsers": 2, "newGroups": 3, "completedSorteios": 1 },
+  "engagement": { "participations": 5, "revealed": 2, "revealRate": 40 },
+  "invitations": {
+    "attempts": 8,
+    "attemptsByStatus": { "PENDING": 0, "SENT": 6, "DELIVERED": 0, "FAILED": 2 }
+  }
+}
+```
+
+### Significado dos indicadores
+
+- `totals` descreve os registros existentes em toda a plataforma, independentemente
+  do período. `sorteios` conta grupos com `sorteadoAt` preenchido. Grupos excluídos
+  deixam de compor as métricas atuais, inclusive séries e contagens por organizador.
+- `activity` usa, respectivamente, `User.createdAt`, `Group.createdAt` e
+  `Group.sorteadoAt` dentro do período. As séries usam as mesmas datas, retornam
+  todos os dias e preenchem dias sem atividade com zero.
+- Contas e participações são diferentes. A mesma pessoa em três grupos representa
+  três participações, mesmo sem ter uma conta cadastrada.
+- `engagement` considera participantes de grupos **sorteados no período** e o
+  estado atual de suas revelações. Uma participação com qualquer acesso revelado
+  conta uma vez, mesmo com vários tokens, revogação ou reenvio. `revealRate` é
+  um percentual de 0 a 100, arredondado para duas casas; sem participantes é zero.
+- `invitations` conta tentativas de convite por e-mail criadas no período,
+  incluindo reenvios, agrupadas pelo status atualmente persistido. `SENT`
+  significa aceito pelo provedor, não entrega na caixa de entrada. Hoje não há
+  confirmação de entrega; o enum `DELIVERED` é preservado no contrato sem
+  adicionar webhooks ou inferir entregas.
+
+### Histórico e privacidade
+
+O histórico começa com a implantação. Os tipos de evento são `USER_REGISTERED`,
+`GROUP_CREATED`, `GROUP_RENAMED`, `SORTEIO_COMPLETED` e `GROUP_DELETED`.
+O autor é a conta autenticada que executou a ação; no cadastro, é a conta criada.
+Nome do autor e nome do grupo são snapshots do momento da ação; renomeações
+posteriores e exclusões não apagam ou reescrevem os eventos anteriores.
+
+Cada evento é persistido na mesma transação da operação de negócio. Se a gravação
+da auditoria falhar, a alteração de negócio também é revertida. Ações rejeitadas
+não geram eventos de sucesso. Falhas no envio dos convites após um sorteio não
+desfazem o sorteio nem seu evento.
+
+Não existem endpoints administrativos de escrita, expurgo automático ou
+reconstrução histórica. Os snapshots não possuem exclusão em cascata; uma futura
+funcionalidade de exclusão de contas deverá considerar sua retenção explicitamente.
+
+As APIs administrativas não selecionam ou descriptografam resultados sorteados,
+tokens, hashes de senha, dados pessoais de participantes ou conteúdo de mensagens
+anônimas. Os eventos persistem somente os metadados definidos acima e não
+copiam e-mails nem credenciais. Não são enviados dados de auditoria aos logs.

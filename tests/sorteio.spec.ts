@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
   $transaction: vi.fn(),
+  auditEvent: { create: vi.fn() },
+  user: { findUnique: vi.fn() },
   assignment: {
     createMany: vi.fn(),
   },
@@ -29,7 +31,10 @@ const notificationMock = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/lib/prisma.js', () => ({ prisma: prismaMock }));
-vi.mock('../src/modules/notifications/notifications.service.js', () => notificationMock);
+vi.mock(
+  '../src/modules/notifications/notifications.service.js',
+  () => notificationMock,
+);
 
 import { createAuthToken } from '../src/lib/auth-token.js';
 import { decryptSorteioResult } from '../src/lib/data-protection.js';
@@ -37,6 +42,7 @@ import { app } from '../src/app.js';
 
 type StoredGroup = {
   id: string;
+  name: string;
   ownerId: string;
   status: 'DRAFT' | 'READY' | 'SORTEADO' | 'CANCELLED';
   sorteadoAt: Date | null;
@@ -82,7 +88,7 @@ const addGroup = (
   ownerId: string,
   status: StoredGroup['status'] = 'DRAFT',
 ): StoredGroup => {
-  const group = { id, ownerId, status, sorteadoAt: null };
+  const group = { id, ownerId, name: 'Grupo', status, sorteadoAt: null };
   groups.set(id, group);
   return group;
 };
@@ -108,10 +114,11 @@ beforeEach(() => {
   assignments.clear();
   participantAccesses.clear();
   notificationMock.sendInitialInvitations.mockResolvedValue([]);
+  prismaMock.user.findUnique.mockResolvedValue({ name: 'Owner' });
 
   prismaMock.group.findFirst.mockImplementation(async ({ where }) => {
     const group = groups.get(where.id);
-    return group?.ownerId === where.ownerId ? group : null;
+    return group?.ownerId === where.ownerId ? { ...group } : null;
   });
   prismaMock.group.updateMany.mockImplementation(async ({ where, data }) => {
     const group = groups.get(where.id);
@@ -125,7 +132,9 @@ beforeEach(() => {
     return { count: 1 };
   });
   prismaMock.participant.findMany.mockImplementation(async ({ where }) =>
-    [...participants.values()].filter((participant) => participant.groupId === where.groupId),
+    [...participants.values()].filter(
+      (participant) => participant.groupId === where.groupId,
+    ),
   );
   prismaMock.restriction.findMany.mockImplementation(async ({ where }) =>
     restrictions.filter((restriction) => restriction.groupId === where.groupId),
@@ -141,26 +150,47 @@ beforeEach(() => {
 
     return { count: data.length };
   });
-  prismaMock.participantAccess.createMany.mockImplementation(async ({ data }) => {
-    for (const access of data) {
-      if ([...participantAccesses.values()].some(({ tokenHash }) => tokenHash === access.tokenHash)) {
-        throw new Error('Participant access token already exists.');
+  prismaMock.participantAccess.createMany.mockImplementation(
+    async ({ data }) => {
+      for (const access of data) {
+        if (
+          [...participantAccesses.values()].some(
+            ({ tokenHash }) => tokenHash === access.tokenHash,
+          )
+        ) {
+          throw new Error('Participant access token already exists.');
+        }
+
+        participantAccesses.set(access.participantId, access);
       }
 
-      participantAccesses.set(access.participantId, access);
-    }
-
-    return { count: data.length };
-  });
-  prismaMock.$transaction.mockImplementation(async (callback) =>
-    callback({
-      assignment: prismaMock.assignment,
-      participantAccess: prismaMock.participantAccess,
-      group: prismaMock.group,
-      participant: prismaMock.participant,
-      restriction: prismaMock.restriction,
-    }),
+      return { count: data.length };
+    },
   );
+  prismaMock.$transaction.mockImplementation(async (callback) => {
+    const groupSnapshot = structuredClone([...groups]);
+    const assignmentSnapshot = new Map(assignments);
+    const accessSnapshot = new Map(participantAccesses);
+    try {
+      return await callback({
+        auditEvent: prismaMock.auditEvent,
+        user: prismaMock.user,
+        assignment: prismaMock.assignment,
+        participantAccess: prismaMock.participantAccess,
+        group: prismaMock.group,
+        participant: prismaMock.participant,
+        restriction: prismaMock.restriction,
+      });
+    } catch (error) {
+      groups.clear();
+      groupSnapshot.forEach(([id, group]) => groups.set(id, group));
+      assignments.clear();
+      assignmentSnapshot.forEach((value, id) => assignments.set(id, value));
+      participantAccesses.clear();
+      accessSnapshot.forEach((value, id) => participantAccesses.set(id, value));
+      throw error;
+    }
+  });
 });
 
 describe('sorteio viability', () => {
@@ -195,11 +225,22 @@ describe('sorteio viability', () => {
 
   it('marks impossible restrictions as not viable', async () => {
     const groupId = cuid(1);
-    const [participantAId, participantBId, participantCId] = addParticipants(groupId, 3);
+    const [participantAId, participantBId, participantCId] = addParticipants(
+      groupId,
+      3,
+    );
     addGroup(groupId, 'owner-1');
     restrictions.push(
-      { groupId, giverParticipantId: participantAId, forbiddenParticipantId: participantBId },
-      { groupId, giverParticipantId: participantAId, forbiddenParticipantId: participantCId },
+      {
+        groupId,
+        giverParticipantId: participantAId,
+        forbiddenParticipantId: participantBId,
+      },
+      {
+        groupId,
+        giverParticipantId: participantAId,
+        forbiddenParticipantId: participantCId,
+      },
     );
 
     const response = await request(app)
@@ -207,7 +248,10 @@ describe('sorteio viability', () => {
       .set('Cookie', authCookie('owner-1'));
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ viable: false, reason: 'NO_VALID_ASSIGNMENT' });
+    expect(response.body).toEqual({
+      viable: false,
+      reason: 'NO_VALID_ASSIGNMENT',
+    });
   });
 
   it('returns 404 to another user', async () => {
@@ -225,7 +269,10 @@ describe('sorteio viability', () => {
 describe('POST /groups/:groupId/sorteio', () => {
   it('creates encrypted assignments and marks the group as SORTEADO', async () => {
     const groupId = cuid(1);
-    const [participantAId, participantBId, participantCId] = addParticipants(groupId, 3);
+    const [participantAId, participantBId, participantCId] = addParticipants(
+      groupId,
+      3,
+    );
     const group = addGroup(groupId, 'owner-1');
     restrictions.push({
       groupId,
@@ -251,6 +298,17 @@ describe('POST /groups/:groupId/sorteio', () => {
       [participantAId, participantBId, participantCId].sort(),
     );
     expect(prismaMock.$transaction).toHaveBeenCalledOnce();
+    expect(prismaMock.auditEvent.create).toHaveBeenCalledWith({
+      data: {
+        type: 'SORTEIO_COMPLETED',
+        actorUserId: 'owner-1',
+        actorName: 'Owner',
+        groupId,
+        groupName: 'Grupo',
+        occurredAt: group.sorteadoAt,
+      },
+      select: { id: true },
+    });
     expect(notificationMock.sendInitialInvitations).toHaveBeenCalledWith(
       groupId,
       expect.arrayContaining([
@@ -282,7 +340,9 @@ describe('POST /groups/:groupId/sorteio', () => {
     expect(receivers.size).toBe(3);
 
     for (const [participantId, access] of participantAccesses) {
-      expect([participantAId, participantBId, participantCId]).toContain(participantId);
+      expect([participantAId, participantBId, participantCId]).toContain(
+        participantId,
+      );
       expect(access).not.toHaveProperty('token');
       expect(access.tokenHash).toMatch(/^[a-f0-9]{64}$/);
       expect(access.expiresAt).toBeInstanceOf(Date);
@@ -309,13 +369,63 @@ describe('POST /groups/:groupId/sorteio', () => {
     expect(assignments.size).toBe(3);
   });
 
+  it('snapshots a draft rename committed between the first read and the draw update', async () => {
+    const groupId = cuid(1);
+    const group = addGroup(groupId, 'owner-1');
+    addParticipants(groupId, 3);
+    prismaMock.group.updateMany.mockImplementationOnce(async ({ data }) => {
+      group.name = 'Nome atualizado antes do sorteio';
+      group.status = data.status;
+      group.sorteadoAt = data.sorteadoAt;
+      return { count: 1 };
+    });
+    const response = await request(app)
+      .post(`/groups/${groupId}/sorteio`)
+      .set('Cookie', authCookie('owner-1'));
+    expect(response.status).toBe(200);
+    expect(prismaMock.auditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ groupName: group.name }),
+      }),
+    );
+  });
+
+  it('rolls back the draw and protected data if its audit event fails', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+    addParticipants(groupId, 3);
+    prismaMock.auditEvent.create.mockRejectedValueOnce(
+      new Error('Audit unavailable'),
+    );
+    const response = await request(app)
+      .post(`/groups/${groupId}/sorteio`)
+      .set('Cookie', authCookie('owner-1'));
+    expect(response.status).toBe(500);
+    expect(groups.get(groupId)?.status).toBe('DRAFT');
+    expect(groups.get(groupId)?.sorteadoAt).toBeNull();
+    expect(assignments.size).toBe(0);
+    expect(participantAccesses.size).toBe(0);
+    expect(notificationMock.sendInitialInvitations).not.toHaveBeenCalled();
+  });
+
   it('does not create a sorteio without a valid assignment', async () => {
     const groupId = cuid(1);
-    const [participantAId, participantBId, participantCId] = addParticipants(groupId, 3);
+    const [participantAId, participantBId, participantCId] = addParticipants(
+      groupId,
+      3,
+    );
     const group = addGroup(groupId, 'owner-1');
     restrictions.push(
-      { groupId, giverParticipantId: participantAId, forbiddenParticipantId: participantBId },
-      { groupId, giverParticipantId: participantAId, forbiddenParticipantId: participantCId },
+      {
+        groupId,
+        giverParticipantId: participantAId,
+        forbiddenParticipantId: participantBId,
+      },
+      {
+        groupId,
+        giverParticipantId: participantAId,
+        forbiddenParticipantId: participantCId,
+      },
     );
 
     const response = await request(app)
@@ -324,6 +434,7 @@ describe('POST /groups/:groupId/sorteio', () => {
 
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ error: 'SORTEIO_NOT_VIABLE' });
+    expect(prismaMock.auditEvent.create).not.toHaveBeenCalled();
     expect(group.status).toBe('DRAFT');
     expect(assignments.size).toBe(0);
   });

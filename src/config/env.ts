@@ -36,6 +36,27 @@ const environmentSchema = z.object({
     .email('FEEDBACK_EMAIL_TO deve ser um e-mail válido.'),
   APP_URL: z.string().url('APP_URL deve ser uma URL válida.'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET deve ter ao menos 32 caracteres.'),
+  ADMIN_USER_IDS: z
+    .string()
+    .default('')
+    .transform((value) => [
+      ...new Set(
+        value
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ])
+    .pipe(
+      z.array(
+        z
+          .string()
+          .regex(
+            /^[a-zA-Z0-9_-]{1,128}$/,
+            'ADMIN_USER_IDS contém um ID inválido.',
+          ),
+      ),
+    ),
   DATA_ENCRYPTION_KEY: z
     .string()
     .regex(
@@ -96,6 +117,7 @@ export const config = Object.freeze({
   feedbackEmailTo: environment.FEEDBACK_EMAIL_TO,
   appUrl: environment.APP_URL,
   jwtSecret: environment.JWT_SECRET,
+  adminUserIds: Object.freeze(environment.ADMIN_USER_IDS),
   dataEncryptionKey: environment.DATA_ENCRYPTION_KEY,
   sorteioEncryptionKey: environment.SORTEIO_ENCRYPTION_KEY,
   emailLookupSecret: environment.EMAIL_LOOKUP_SECRET,

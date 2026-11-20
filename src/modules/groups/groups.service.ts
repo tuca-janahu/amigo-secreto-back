@@ -6,6 +6,7 @@ import {
   decryptData,
 } from '../../lib/data-protection.js';
 import { prisma } from '../../lib/prisma.js';
+import { recordAuditEvent } from '../audit/audit.service.js';
 import type { CreateGroupInput, UpdateGroupInput } from './groups.schemas.js';
 
 const groupListSelect = {
@@ -23,8 +24,12 @@ const createdGroupSelect = {
   createdAt: true,
 } satisfies Prisma.GroupSelect;
 
-const getOwnedGroup = async (groupId: string, ownerId: string) => {
-  const group = await prisma.group.findFirst({
+const getOwnedGroup = async (
+  groupId: string,
+  ownerId: string,
+  client: Prisma.TransactionClient,
+) => {
+  const group = await client.group.findFirst({
     where: { id: groupId, ownerId },
     select: groupListSelect,
   });
@@ -38,21 +43,42 @@ const getOwnedGroup = async (groupId: string, ownerId: string) => {
 
 const ensureDraft = (status: GroupStatus): void => {
   if (status !== GroupStatus.DRAFT) {
-    throw new AppError(409, 'Este grupo só pode ser alterado enquanto estiver em rascunho.');
+    throw new AppError(
+      409,
+      'Este grupo só pode ser alterado enquanto estiver em rascunho.',
+    );
   }
+};
+
+const handleConcurrentGroupChange = (error: unknown): never => {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2025'
+  ) {
+    throw new AppError(
+      409,
+      'O grupo foi alterado por outra operação. Atualize e tente novamente.',
+    );
+  }
+  throw error;
 };
 
 export const createGroup = async (
   ownerId: string,
   { name }: CreateGroupInput,
 ) =>
-  prisma.group.create({
-    data: {
-      ownerId,
-      name,
-      status: GroupStatus.DRAFT,
-    },
-    select: createdGroupSelect,
+  prisma.$transaction(async (transaction) => {
+    const group = await transaction.group.create({
+      data: { ownerId, name, status: GroupStatus.DRAFT },
+      select: createdGroupSelect,
+    });
+    await recordAuditEvent(transaction, {
+      type: 'GROUP_CREATED',
+      actorUserId: ownerId,
+      groupId: group.id,
+      groupName: group.name,
+    });
+    return group;
   });
 
 const accessibleGroupSelect = (userId: string) =>
@@ -88,7 +114,10 @@ const toAccessibleGroup = <
       accesses: Array<{ id: string }>;
     }>;
   },
->(group: T, userId: string) => {
+>(
+  group: T,
+  userId: string,
+) => {
   const participant = group.participants[0];
 
   return {
@@ -168,23 +197,45 @@ export const renameGroup = async (
   groupId: string,
   ownerId: string,
   { name }: UpdateGroupInput,
-) => {
-  const group = await getOwnedGroup(groupId, ownerId);
-  ensureDraft(group.status);
+) =>
+  prisma
+    .$transaction(async (transaction) => {
+      const group = await getOwnedGroup(groupId, ownerId, transaction);
+      ensureDraft(group.status);
 
-  return prisma.group.update({
-    where: { id: group.id },
-    data: { name },
-    select: groupListSelect,
-  });
-};
+      const updated = await transaction.group.update({
+        where: { id: group.id, ownerId, status: GroupStatus.DRAFT },
+        data: { name },
+        select: groupListSelect,
+      });
+      await recordAuditEvent(transaction, {
+        type: 'GROUP_RENAMED',
+        actorUserId: ownerId,
+        groupId: updated.id,
+        groupName: updated.name,
+      });
+      return updated;
+    })
+    .catch(handleConcurrentGroupChange);
 
 export const deleteGroup = async (
   groupId: string,
   ownerId: string,
 ): Promise<void> => {
-  const group = await getOwnedGroup(groupId, ownerId);
-  ensureDraft(group.status);
-
-  await prisma.group.delete({ where: { id: group.id } });
+  await prisma
+    .$transaction(async (transaction) => {
+      const group = await getOwnedGroup(groupId, ownerId, transaction);
+      ensureDraft(group.status);
+      const deleted = await transaction.group.delete({
+        where: { id: group.id, ownerId, status: GroupStatus.DRAFT },
+        select: groupListSelect,
+      });
+      await recordAuditEvent(transaction, {
+        type: 'GROUP_DELETED',
+        actorUserId: ownerId,
+        groupId: deleted.id,
+        groupName: deleted.name,
+      });
+    })
+    .catch(handleConcurrentGroupChange);
 };

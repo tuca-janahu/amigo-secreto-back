@@ -3,6 +3,7 @@ import { GroupStatus, Prisma } from '@prisma/client';
 import { AppError } from '../../lib/app-error.js';
 import { encryptSorteioResult } from '../../lib/data-protection.js';
 import { prisma } from '../../lib/prisma.js';
+import { recordAuditEvent } from '../audit/audit.service.js';
 import {
   generateParticipantAccessToken,
   getParticipantAccessExpiration,
@@ -17,6 +18,7 @@ const MINIMUM_PARTICIPANTS = 3;
 
 const ownedGroupSelect = {
   id: true,
+  name: true,
   status: true,
 } satisfies Prisma.GroupSelect;
 
@@ -38,7 +40,10 @@ type SorteioData = {
 
 export type SorteioViability =
   | { viable: true }
-  | { viable: false; reason: 'NOT_ENOUGH_PARTICIPANTS' | 'NO_VALID_ASSIGNMENT' };
+  | {
+      viable: false;
+      reason: 'NOT_ENOUGH_PARTICIPANTS' | 'NO_VALID_ASSIGNMENT';
+    };
 
 export type ParticipantAccessToken = {
   participantId: string;
@@ -98,7 +103,10 @@ const getViability = ({
 
 const ensureDraft = (status: GroupStatus): void => {
   if (status !== GroupStatus.DRAFT) {
-    throw new AppError(409, 'O grupo só pode ser sorteado enquanto estiver em rascunho.');
+    throw new AppError(
+      409,
+      'O grupo só pode ser sorteado enquanto estiver em rascunho.',
+    );
   }
 };
 
@@ -173,6 +181,17 @@ export const sortearGrupo = async (groupId: string, ownerId: string) =>
         tokenHash: hashParticipantAccessToken(token),
         expiresAt: getParticipantAccessExpiration(sorteadoAt),
       })),
+    });
+
+    // The successful update holds the group lock until commit. Read its current
+    // name in case a concurrent draft rename committed after the initial read.
+    const sorteadoGroup = await getOwnedGroup(transaction, group.id, ownerId);
+    await recordAuditEvent(transaction, {
+      type: 'SORTEIO_COMPLETED',
+      actorUserId: ownerId,
+      groupId: group.id,
+      groupName: sorteadoGroup.name,
+      occurredAt: sorteadoAt,
     });
 
     return {

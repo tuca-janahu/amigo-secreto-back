@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
   $transaction: vi.fn(),
+  auditEvent: { create: vi.fn() },
   user: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -79,9 +80,16 @@ beforeEach(() => {
   users.clear();
   passwordResetTokens.clear();
   sendPasswordResetEmailMock.mockResolvedValue(undefined);
-  prismaMock.$transaction.mockImplementation(async (callback) =>
-    callback(prismaMock),
-  );
+  prismaMock.$transaction.mockImplementation(async (callback) => {
+    const snapshot = structuredClone([...users]);
+    try {
+      return await callback(prismaMock);
+    } catch (error) {
+      users.clear();
+      snapshot.forEach(([email, user]) => users.set(email, user));
+      throw error;
+    }
+  });
   prismaMock.user.findUnique.mockImplementation(async ({ where, select }) => {
     const user = where.email
       ? users.get(where.email)
@@ -138,7 +146,8 @@ beforeEach(() => {
       const matchingTokens = [...passwordResetTokens.values()].filter(
         (token) => {
           if (where.userId && token.userId !== where.userId) return false;
-          if (where.tokenHash && token.tokenHash !== where.tokenHash) return false;
+          if (where.tokenHash && token.tokenHash !== where.tokenHash)
+            return false;
           if (where.id && token.id !== where.id) return false;
           if (where.expiresAt?.gt && token.expiresAt <= where.expiresAt.gt) {
             return false;
@@ -158,6 +167,36 @@ beforeEach(() => {
 
 describe('auth', () => {
   describe('POST /auth/register', () => {
+    it('records a registration snapshot without copying credentials', async () => {
+      const response = await request(app).post('/auth/register').send({
+        name: 'Ana',
+        email: 'ana@example.com',
+        password: 'secure-password',
+      });
+      expect(response.status).toBe(201);
+      expect(prismaMock.auditEvent.create).toHaveBeenCalledWith({
+        data: {
+          type: 'USER_REGISTERED',
+          actorUserId: 'user-1',
+          actorName: 'Ana',
+        },
+        select: { id: true },
+      });
+    });
+
+    it('aborts registration if the audit event cannot be persisted', async () => {
+      prismaMock.auditEvent.create.mockRejectedValueOnce(
+        new Error('Audit unavailable'),
+      );
+      const response = await request(app).post('/auth/register').send({
+        name: 'Ana',
+        email: 'ana@example.com',
+        password: 'secure-password',
+      });
+      expect(response.status).toBe(500);
+      expect(users.size).toBe(0);
+    });
+
     it('creates a user with normalized email and does not expose passwordHash', async () => {
       const response = await request(app).post('/auth/register').send({
         name: '  Artur  ',
@@ -255,7 +294,9 @@ describe('auth', () => {
 
       expect(invalidPassword.status).toBe(401);
       expect(unknownUser.status).toBe(401);
-      expect(invalidPassword.body).toEqual({ message: 'Credenciais inválidas.' });
+      expect(invalidPassword.body).toEqual({
+        message: 'Credenciais inválidas.',
+      });
       expect(unknownUser.body).toEqual({ message: 'Credenciais inválidas.' });
     });
 
@@ -271,7 +312,9 @@ describe('auth', () => {
         );
       }
 
-      expect(responses.slice(0, 10).every(({ status }) => status === 401)).toBe(true);
+      expect(responses.slice(0, 10).every(({ status }) => status === 401)).toBe(
+        true,
+      );
       expect(responses[10].status).toBe(429);
       expect(responses[10].body).toEqual({
         message: 'Muitas tentativas. Tente novamente em alguns minutos.',
@@ -293,7 +336,12 @@ describe('auth', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
-        user: { id: 'user-1', name: 'Artur', email: 'user@email.com' },
+        user: {
+          id: 'user-1',
+          name: 'Artur',
+          email: 'user@email.com',
+          isAdmin: false,
+        },
       });
     });
 
