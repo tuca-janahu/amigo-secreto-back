@@ -20,7 +20,6 @@ const ownedGroupSelect = {
   id: true,
   name: true,
   status: true,
-  owner: { select: { name: true } },
 } satisfies Prisma.GroupSelect;
 
 const protectedParticipantSelect = {
@@ -90,12 +89,10 @@ const notificationErrorMessage = (): string => 'Não foi possível enviar o e-ma
 const deliverInvitation = async ({
   participant,
   groupName,
-  organizerName,
   token,
 }: {
   participant: InvitationRecipient;
   groupName: string;
-  organizerName: string;
   token: string;
 }): Promise<InvitationAttemptStatus> => {
   const notification = await prisma.notification.create({
@@ -113,7 +110,6 @@ const deliverInvitation = async ({
       recipient: participant.email,
       participantName: participant.name,
       groupName,
-      organizerName,
       token,
     });
   } catch {
@@ -173,7 +169,6 @@ export const sendInitialInvitations = async (
     select: {
       id: true,
       name: true,
-      owner: { select: { name: true } },
       participants: {
         where: {
           id: {
@@ -205,7 +200,6 @@ export const sendInitialInvitations = async (
       await deliverInvitation({
         participant: toInvitationRecipient(participant),
         groupName: group.name,
-        organizerName: group.owner.name,
         token,
       }),
     );
@@ -226,7 +220,6 @@ export const resendInvitation = async (
   return deliverInvitation({
     participant: toInvitationRecipient(participant),
     groupName: group.name,
-    organizerName: group.owner.name,
     token,
   });
 };

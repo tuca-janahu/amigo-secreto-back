@@ -217,8 +217,8 @@ copiam e-mails nem credenciais. Não são enviados dados de auditoria aos logs.
 
 ### Envio transacional pelo Resend
 
-O convite existente é enviado após o sorteio: assunto e corpo incluem o nome
-do organizador, e o assunto também identifica o participante. Todos os envios
+O convite existente é enviado após o sorteio: o assunto identifica o participante,
+sem referência ao organizador no assunto ou no corpo. Todos os envios
 (convite, redefinição de senha e feedback) possuem HTML e texto simples.
 Em produção, o envio exige `EMAIL_FROM=Amigo Secreto <amigosecreto@mail.janahu.dev.br>`
 e os links de acesso exigem `APP_URL=https://amigosecreto.janahu.dev.br`.

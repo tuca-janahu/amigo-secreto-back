@@ -17,29 +17,27 @@ describe('Resend invitation email', () => {
     emailsSend.mockResolvedValue({ data: { id: 'message' }, error: null });
     await sendInvitationEmail({
       recipient: 'lucas@example.com',
-      participantName: 'Lucas',
+      participantName: '<Lucas>',
       groupName: 'Família & Amigos',
-      organizerName: '<Bárbara>',
       token: 'test-token',
     });
     const { html, text } = emailsSend.mock.calls[0][0];
-    expect(html).toContain('&lt;Bárbara&gt; te convidou');
+    expect(html).toContain('Olá, &lt;Lucas&gt;!');
     expect(html).toContain('Família &amp; Amigos');
-    expect(text).toContain('<Bárbara> te convidou');
+    expect(text).toContain('Olá, <Lucas>!');
     expect(text).toContain('Família & Amigos');
     expect(text).toContain('http://localhost:5173/s/test-token');
     expect(html).toContain('http://localhost:5173/s/test-token');
   });
 
-  it.each(['', '  ', 'Bárbara\r\nBcc: attacker@example.com'])(
-    'rejects invalid organizer names',
-    async (organizerName) => {
+  it.each(['', '  ', 'Lucas\r\nBcc: attacker@example.com'])(
+    'rejects invalid participant names',
+    async (participantName) => {
       await expect(
         sendInvitationEmail({
           recipient: 'lucas@example.com',
-          participantName: 'Lucas',
+          participantName,
           groupName: 'Grupo',
-          organizerName,
           token: 'test-token',
         }),
       ).rejects.toThrow();
@@ -58,7 +56,6 @@ describe('Resend invitation email', () => {
         recipient: 'lucas@email.com',
         participantName: 'Lucas',
         groupName: 'Amigo Secreto 2026',
-        organizerName: 'Bárbara',
         token: 'individual-token',
       }),
     ).resolves.toBe('provider-message-1');
@@ -67,8 +64,8 @@ describe('Resend invitation email', () => {
       expect.objectContaining({
         from: 'Amigo Secreto <noreply@example.com>',
         to: 'lucas@email.com',
-        subject: '🎁 Lucas, Bárbara te convidou — seu amigo secreto já foi sorteado',
-        text: expect.stringContaining('Bárbara te convidou'),
+        subject: '🎁 Lucas, seu amigo secreto já foi sorteado',
+        text: expect.stringContaining('O sorteio do grupo Amigo Secreto 2026 já foi realizado.'),
         html: expect.stringContaining('http://localhost:5173/s/individual-token'),
       }),
       {
@@ -90,7 +87,6 @@ describe('Resend invitation email', () => {
         recipient: 'invalid@email.com',
         participantName: 'Lucas',
         groupName: 'Amigo Secreto 2026',
-        organizerName: 'Bárbara',
         token: 'individual-token',
       }),
     ).rejects.toThrow('Não foi possível enviar o e-mail de convite.');

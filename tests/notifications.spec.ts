@@ -87,7 +87,6 @@ const addGroup = (
     ownerId,
     name: `Group ${id}`,
     status,
-    owner: { name: 'Bárbara' },
   };
   groups.set(id, group);
   return group;
@@ -274,7 +273,6 @@ describe('initial invitation delivery', () => {
     expect(sendInvitationEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         recipient: 'lucas@email.com',
-        organizerName: 'Bárbara',
         token: 'first-token',
       }),
     );

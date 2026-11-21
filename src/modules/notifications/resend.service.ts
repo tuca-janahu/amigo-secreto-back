@@ -21,12 +21,10 @@ const escapeHtml = (value: string): string =>
 const invitationHtml = ({
   participantName,
   groupName,
-  organizerName,
   invitationUrl,
 }: {
   participantName: string;
   groupName: string;
-  organizerName: string;
   invitationUrl: string;
 }): string => `
   <!doctype html>
@@ -80,7 +78,7 @@ const invitationHtml = ({
                           Olá, ${escapeHtml(participantName)}!
                         </h1>
                         <p style="margin:0 0 16px; color:#292929; font-size:16px; line-height:1.6;">
-                          ${escapeHtml(organizerName)} te convidou para participar do grupo <strong>${escapeHtml(groupName)}</strong>. O sorteio já foi realizado.
+                          O sorteio do grupo <strong>${escapeHtml(groupName)}</strong> já foi realizado.
                         </p>
                         <p style="margin:0 0 28px; color:#292929; font-size:16px; line-height:1.6;">
                           Clique no botão abaixo para descobrir quem você tirou.
@@ -121,17 +119,15 @@ export const sendInvitationEmail = async ({
   recipient,
   participantName,
   groupName,
-  organizerName,
   token,
 }: {
   recipient: string;
   participantName: string;
   groupName: string;
-  organizerName: string;
   token: string;
 }): Promise<string> => {
   if (
-    ![participantName, groupName, organizerName].every(
+    ![participantName, groupName].every(
       (value) => emailNameSchema.safeParse(value).success,
     )
   ) {
@@ -142,16 +138,15 @@ export const sendInvitationEmail = async ({
     {
       from: config.emailFrom,
       to: recipient,
-      subject: `🎁 ${participantName}, ${organizerName} te convidou — seu amigo secreto já foi sorteado`,
+      subject: `🎁 ${participantName}, seu amigo secreto já foi sorteado`,
       html: invitationHtml({
         participantName,
         groupName,
-        organizerName,
         invitationUrl,
       }),
       text: `Olá, ${participantName}!
 
-${organizerName} te convidou para participar do grupo ${groupName}. O sorteio já foi realizado.
+O sorteio do grupo ${groupName} já foi realizado.
 
 Acesse o link para descobrir quem você tirou:
 ${invitationUrl}
