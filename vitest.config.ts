@@ -14,6 +14,7 @@ export default defineConfig({
       FEEDBACK_EMAIL_TO: 'feedback@example.com',
       APP_URL: 'http://localhost:5173',
       JWT_SECRET: 'test-jwt-secret-with-at-least-32-characters',
+      ADMIN_USER_IDS: '',
       DATA_ENCRYPTION_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=', // CHAVE FAKE PARA TESTES
       SORTEIO_ENCRYPTION_KEY: 'YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU=', // CHAVE FAKE PARA TESTES
       EMAIL_LOOKUP_SECRET: 'test-email-lookup-secret-with-32-characters',

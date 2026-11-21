@@ -214,3 +214,37 @@ As APIs administrativas não selecionam ou descriptografam resultados sorteados,
 tokens, hashes de senha, dados pessoais de participantes ou conteúdo de mensagens
 anônimas. Os eventos persistem somente os metadados definidos acima e não
 copiam e-mails nem credenciais. Não são enviados dados de auditoria aos logs.
+
+### Envio transacional pelo Resend
+
+O convite existente é enviado após o sorteio: assunto e corpo incluem o nome
+do organizador, e o assunto também identifica o participante. Todos os envios
+(convite, redefinição de senha e feedback) possuem HTML e texto simples.
+Em produção, o envio exige `EMAIL_FROM=Amigo Secreto <amigosecreto@mail.janahu.dev.br>`
+e os links de acesso exigem `APP_URL=https://amigosecreto.janahu.dev.br`.
+O template mantém seus estilos e os links são diretos, sem encurtadores.
+
+Falhas transitórias de rede, HTTP 429 e 5xx têm até três tentativas, com backoff,
+jitter e respeito a `Retry-After`. Esperas acima de 30 segundos encerram a
+tentativa sem reenviar antecipadamente. Cada payload possui uma chave de
+idempotência SHA-256 estável; o Resend a retém por 24 horas. Isso evita duplicar
+o mesmo envio nos retries. Um reenvio explícito gera outro token e é um novo
+envio. Não há fila persistente nem garantia de deduplicação de comandos de
+reenvio distintos. O lote inicial é sequencial para reduzir rajadas.
+
+Logs da aplicação registram somente categoria, status, número da tentativa ou
+ID interno da notificação; nunca payloads, destinatários ou tokens. Use
+`NODE_ENV=production` em produção: o SDK Resend também possui logs de erro
+próprios fora desse ambiente. Se a aceitação pelo provedor ocorrer e a gravação
+de `SENT` falhar, a notificação permanece `PENDING` para investigação, sem
+classificá-la como falha de envio. Reenvios em lote ignoram `PENDING`, `SENT`
+e `DELIVERED`; o reenvio individual permanece disponível ao organizador.
+
+Click tracking e open tracking são configurações do domínio no Resend,
+[não opções por mensagem](https://github.com/resend/resend-skills/blob/main/skills/resend/references/sending/overview.md).
+A consulta em 20/11/2026 retornou `restricted_api_key`: a chave local permite
+somente envios, portanto o estado de tracking não pôde ser confirmado.
+Nenhuma configuração do domínio ou DNS foi alterada. Verifique em Resend →
+Domains → mail.janahu.dev.br → Configuration. Desativar ali afeta todos os
+envios do domínio e exige avaliar os demais usos; enquanto click tracking
+estiver ativo, o provedor poderá reescrever os links enviados pelo backend.

@@ -1,5 +1,5 @@
 import { config } from '../../config/env.js';
-import { resend } from '../../lib/resend.js';
+import { sendTransactionalEmail } from '../../lib/transactional-email.js';
 import type { CreateFeedbackInput } from './feedback.schemas.js';
 
 const escapeHtml = (value: string): string =>
@@ -37,12 +37,13 @@ export const sendFeedbackEmail = async ({
 }: CreateFeedbackInput): Promise<void> => {
   const typeLabel = typeLabels[type];
   const sourceLabel = sourceLabels[source];
-  const result = await resend.emails.send({
-    from: config.emailFrom,
-    to: config.feedbackEmailTo,
-    subject: `[Amigo Secreto] ${typeLabel}`,
-    text: `Tipo: ${typeLabel}\nTela: ${sourceLabel}\n\n${message}`,
-    html: `
+  await sendTransactionalEmail(
+    {
+      from: config.emailFrom,
+      to: config.feedbackEmailTo,
+      subject: `[Amigo Secreto] ${typeLabel}`,
+      text: `Tipo: ${typeLabel}\nTela: ${sourceLabel}\n\n${message}`,
+      html: `
       <!doctype html>
       <html lang="pt-BR">
         <body style="margin:0; padding:24px; background:#f7f1df; color:#171717; font-family:'Courier New', Courier, monospace;">
@@ -54,9 +55,7 @@ export const sendFeedbackEmail = async ({
         </body>
       </html>
     `,
-  });
-
-  if (result.error || !result.data?.id) {
-    throw new Error('Não foi possível enviar o feedback.');
-  }
+    },
+    'Não foi possível enviar o feedback.',
+  );
 };

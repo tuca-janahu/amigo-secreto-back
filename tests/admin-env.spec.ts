@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// Test environment parsing without falling back to the developer's .env file.
+vi.mock('dotenv', () => ({ default: { config: vi.fn() } }));
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();

@@ -30,9 +30,7 @@ vi.mock('../src/modules/notifications/resend.service.js', () => ({
 import { createAuthToken } from '../src/lib/auth-token.js';
 import { encryptData } from '../src/lib/data-protection.js';
 import { app } from '../src/app.js';
-import {
-  sendInitialInvitations,
-} from '../src/modules/notifications/notifications.service.js';
+import { sendInitialInvitations } from '../src/modules/notifications/notifications.service.js';
 
 type StoredGroup = {
   id: string;
@@ -75,27 +73,27 @@ const groups = new Map<string, StoredGroup>();
 const participants = new Map<string, StoredParticipant>();
 const accesses = new Map<string, StoredAccess>();
 const notifications = new Map<string, StoredNotification>();
-const cuid = (number: number): string =>
-  `c${number.toString().padStart(24, '0')}`;
+const cuid = (number: number): string => `c${number.toString().padStart(24, '0')}`;
 
-const authCookie = (userId: string): string =>
-  `auth_token=${createAuthToken(userId)}`;
+const authCookie = (userId: string): string => `auth_token=${createAuthToken(userId)}`;
 
 const addGroup = (
   id: string,
   ownerId: string,
   status: StoredGroup['status'] = 'SORTEADO',
 ): StoredGroup => {
-  const group = { id, ownerId, name: `Group ${id}`, status };
+  const group = {
+    id,
+    ownerId,
+    name: `Group ${id}`,
+    status,
+    owner: { name: 'Bárbara' },
+  };
   groups.set(id, group);
   return group;
 };
 
-const addParticipant = (
-  id: string,
-  groupId: string,
-  name: string,
-): StoredParticipant => {
+const addParticipant = (id: string, groupId: string, name: string): StoredParticipant => {
   const participant = {
     id,
     groupId,
@@ -179,8 +177,7 @@ beforeEach(() => {
       .map((participant) => ({
         ...participant,
         accesses: [...accesses.values()].filter(
-          (access) =>
-            access.participantId === participant.id && access.revealedAt !== null,
+          (access) => access.participantId === participant.id && access.revealedAt !== null,
         ),
         notifications: [...notifications.values()]
           .filter((notification) => notification.participantId === participant.id)
@@ -231,6 +228,17 @@ beforeEach(() => {
 });
 
 describe('initial invitation delivery', () => {
+  it('does not mark an accepted email as FAILED when saving SENT fails', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+    const participant = addParticipant(cuid(10), groupId, 'Lucas');
+    sendInvitationEmailMock.mockResolvedValue('provider-message');
+    prismaMock.notification.update.mockRejectedValueOnce(new Error('Database unavailable'));
+    expect(await sendInitialInvitations(groupId, [{ participantId: participant.id, token: 'test-token' }])).toEqual(['SENT']);
+    expect([...notifications.values()][0].status).toBe('PENDING');
+    expect(prismaMock.notification.update).toHaveBeenCalledTimes(1);
+  });
+
   it('records SENT and FAILED independently without affecting the sorteado group', async () => {
     const groupId = cuid(1);
     const group = addGroup(groupId, 'owner-1');
@@ -264,12 +272,30 @@ describe('initial invitation delivery', () => {
       ]),
     );
     expect(sendInvitationEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ recipient: 'lucas@email.com', token: 'first-token' }),
+      expect.objectContaining({
+        recipient: 'lucas@email.com',
+        organizerName: 'Bárbara',
+        token: 'first-token',
+      }),
     );
   });
 });
 
 describe('invitation resends', () => {
+  it('skips in-flight and delivered notifications in bulk resends', async () => {
+    const groupId = cuid(1);
+    addGroup(groupId, 'owner-1');
+    for (const [index, status] of (['PENDING', 'DELIVERED'] as const).entries()) {
+      const participant = addParticipant(cuid(index + 10), groupId, `Person${index}`);
+      addNotification(`notification-${index}`, participant.id, status);
+    }
+    const response = await request(app)
+      .post(`/groups/${groupId}/invitations/resend-pending`)
+      .set('Cookie', authCookie('owner-1'));
+    expect(response.body).toEqual({ attempted: 0, sent: 0, failed: 0 });
+    expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+  });
+
   it('allows the owner to resend, revoking the previous access and storing no token', async () => {
     const groupId = cuid(1);
     const participantId = cuid(10);

@@ -36,6 +36,9 @@ describe('feedback email', () => {
         subject: '[Amigo Secreto] Bug',
         text: expect.stringContaining('Tela: Participante'),
       }),
+      {
+        idempotencyKey: expect.stringMatching(/^transactional\/[a-f0-9]{64}$/),
+      },
     );
     const email = emailsSend.mock.calls[0][0];
     expect(email.html).toContain('&lt;script&gt;alert(&quot;token&quot;)&lt;/script&gt;');
