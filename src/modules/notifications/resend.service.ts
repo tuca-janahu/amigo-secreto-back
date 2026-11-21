@@ -1,5 +1,9 @@
 import { config } from '../../config/env.js';
-import { resend } from '../../lib/resend.js';
+import {
+  emailAccessUrl,
+  emailNameSchema,
+  sendTransactionalEmail,
+} from '../../lib/transactional-email.js';
 
 const escapeHtml = (value: string): string =>
   value.replace(/[&<>'"]/g, (character) => {
@@ -17,10 +21,12 @@ const escapeHtml = (value: string): string =>
 const invitationHtml = ({
   participantName,
   groupName,
+  organizerName,
   invitationUrl,
 }: {
   participantName: string;
   groupName: string;
+  organizerName: string;
   invitationUrl: string;
 }): string => `
   <!doctype html>
@@ -74,7 +80,7 @@ const invitationHtml = ({
                           Olá, ${escapeHtml(participantName)}!
                         </h1>
                         <p style="margin:0 0 16px; color:#292929; font-size:16px; line-height:1.6;">
-                          O sorteio do grupo <strong>${escapeHtml(groupName)}</strong> já foi realizado.
+                          ${escapeHtml(organizerName)} te convidou para participar do grupo <strong>${escapeHtml(groupName)}</strong>. O sorteio já foi realizado.
                         </p>
                         <p style="margin:0 0 28px; color:#292929; font-size:16px; line-height:1.6;">
                           Clique no botão abaixo para descobrir quem você tirou.
@@ -83,7 +89,7 @@ const invitationHtml = ({
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%; margin:0 0 30px;">
                           <tr>
                             <td align="center" style="background:#d94a3a; border:2px solid #171717; box-shadow:4px 4px 0 #171717;">
-                              <a href="${invitationUrl}" style="display:block; padding:15px 18px; color:#ffffff; font-size:14px; line-height:1.2; font-weight:700; letter-spacing:0.6px; text-decoration:none; text-transform:uppercase;">
+                              <a href="${escapeHtml(invitationUrl)}" style="display:block; padding:15px 18px; color:#ffffff; font-size:14px; line-height:1.2; font-weight:700; letter-spacing:0.6px; text-decoration:none; text-transform:uppercase;">
                                 Ver meu amigo secreto
                               </a>
                             </td>
@@ -115,24 +121,43 @@ export const sendInvitationEmail = async ({
   recipient,
   participantName,
   groupName,
+  organizerName,
   token,
 }: {
   recipient: string;
   participantName: string;
   groupName: string;
+  organizerName: string;
   token: string;
 }): Promise<string> => {
-  const invitationUrl = new URL(`/s/${token}`, config.appUrl).toString();
-  const result = await resend.emails.send({
-    from: config.emailFrom,
-    to: recipient,
-    subject: `🎁 ${participantName}, seu amigo secreto já foi sorteado`,
-    html: invitationHtml({ participantName, groupName, invitationUrl }),
-  });
-
-  if (result.error || !result.data?.id) {
-    throw new Error('Não foi possível enviar o e-mail de convite.');
+  if (
+    ![participantName, groupName, organizerName].every(
+      (value) => emailNameSchema.safeParse(value).success,
+    )
+  ) {
+    throw new Error('Dados do convite inválidos.');
   }
+  const invitationUrl = emailAccessUrl('s', token);
+  return sendTransactionalEmail(
+    {
+      from: config.emailFrom,
+      to: recipient,
+      subject: `🎁 ${participantName}, ${organizerName} te convidou — seu amigo secreto já foi sorteado`,
+      html: invitationHtml({
+        participantName,
+        groupName,
+        organizerName,
+        invitationUrl,
+      }),
+      text: `Olá, ${participantName}!
 
-  return result.data.id;
+${organizerName} te convidou para participar do grupo ${groupName}. O sorteio já foi realizado.
+
+Acesse o link para descobrir quem você tirou:
+${invitationUrl}
+
+Este link é individual. Não compartilhe com ninguém.`,
+    },
+    'Não foi possível enviar o e-mail de convite.',
+  );
 };

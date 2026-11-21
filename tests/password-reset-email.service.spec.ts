@@ -31,13 +31,12 @@ describe('password reset email', () => {
         from: 'Amigo Secreto <noreply@example.com>',
         to: 'user@example.com',
         subject: 'Redefina sua senha no Amigo Secreto',
-        text: expect.stringContaining(
-          'http://localhost:5173/reset-password/single-use-token',
-        ),
-        html: expect.stringContaining(
-          'http://localhost:5173/reset-password/single-use-token',
-        ),
+        text: expect.stringContaining('http://localhost:5173/reset-password/single-use-token'),
+        html: expect.stringContaining('http://localhost:5173/reset-password/single-use-token'),
       }),
+      {
+        idempotencyKey: expect.stringMatching(/^transactional\/[a-f0-9]{64}$/),
+      },
     );
   });
 

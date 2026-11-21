@@ -1,5 +1,5 @@
 import { config } from '../../config/env.js';
-import { resend } from '../../lib/resend.js';
+import { emailAccessUrl, sendTransactionalEmail } from '../../lib/transactional-email.js';
 
 const passwordResetHtml = (resetUrl: string): string => `
   <!doctype html>
@@ -44,16 +44,15 @@ export const sendPasswordResetEmail = async ({
   recipient: string;
   token: string;
 }): Promise<void> => {
-  const resetUrl = new URL(`/reset-password/${token}`, config.appUrl).toString();
-  const result = await resend.emails.send({
-    from: config.emailFrom,
-    to: recipient,
-    subject: 'Redefina sua senha no Amigo Secreto',
-    text: `Use o link abaixo para redefinir sua senha. Ele é válido por 1 hora.\n\n${resetUrl}\n\nSe você não fez esta solicitação, ignore este e-mail.`,
-    html: passwordResetHtml(resetUrl),
-  });
-
-  if (result.error || !result.data?.id) {
-    throw new Error('Não foi possível enviar o e-mail de redefinição de senha.');
-  }
+  const resetUrl = emailAccessUrl('reset-password', token);
+  await sendTransactionalEmail(
+    {
+      from: config.emailFrom,
+      to: recipient,
+      subject: 'Redefina sua senha no Amigo Secreto',
+      text: `Use o link abaixo para redefinir sua senha. Ele é válido por 1 hora.\n\n${resetUrl}\n\nSe você não fez esta solicitação, ignore este e-mail.`,
+      html: passwordResetHtml(resetUrl),
+    },
+    'Não foi possível enviar o e-mail de redefinição de senha.',
+  );
 };

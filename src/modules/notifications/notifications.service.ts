@@ -20,6 +20,7 @@ const ownedGroupSelect = {
   id: true,
   name: true,
   status: true,
+  owner: { select: { name: true } },
 } satisfies Prisma.GroupSelect;
 
 const protectedParticipantSelect = {
@@ -89,10 +90,12 @@ const notificationErrorMessage = (): string => 'Não foi possível enviar o e-ma
 const deliverInvitation = async ({
   participant,
   groupName,
+  organizerName,
   token,
 }: {
   participant: InvitationRecipient;
   groupName: string;
+  organizerName: string;
   token: string;
 }): Promise<InvitationAttemptStatus> => {
   const notification = await prisma.notification.create({
@@ -104,25 +107,17 @@ const deliverInvitation = async ({
     select: { id: true },
   });
 
+  let providerMessageId: string;
   try {
-    const providerMessageId = await sendInvitationEmail({
+    providerMessageId = await sendInvitationEmail({
       recipient: participant.email,
       participantName: participant.name,
       groupName,
+      organizerName,
       token,
     });
-
-    await prisma.notification.update({
-      where: { id: notification.id },
-      data: {
-        status: NotificationStatus.SENT,
-        providerMessageId,
-        sentAt: new Date(),
-      },
-    });
-
-    return 'SENT';
   } catch {
+    console.error('invitation_send_failed', { notificationId: notification.id });
     await prisma.notification.update({
       where: { id: notification.id },
       data: {
@@ -134,6 +129,18 @@ const deliverInvitation = async ({
 
     return 'FAILED';
   }
+
+  try {
+    await prisma.notification.update({
+      where: { id: notification.id },
+      data: { status: NotificationStatus.SENT, providerMessageId, sentAt: new Date() },
+    });
+  } catch {
+    // Acceptance succeeded. Leave PENDING for reconciliation, never mark FAILED
+    // and trigger a bulk resend just because persistence failed afterwards.
+    console.error('invitation_status_update_failed', { notificationId: notification.id });
+  }
+  return 'SENT';
 };
 
 const createReplacementAccess = async (participantId: string): Promise<string> => {
@@ -166,8 +173,13 @@ export const sendInitialInvitations = async (
     select: {
       id: true,
       name: true,
+      owner: { select: { name: true } },
       participants: {
-        where: { id: { in: participantAccessTokens.map(({ participantId }) => participantId) } },
+        where: {
+          id: {
+            in: participantAccessTokens.map(({ participantId }) => participantId),
+          },
+        },
         select: protectedParticipantSelect,
       },
     },
@@ -181,21 +193,24 @@ export const sendInitialInvitations = async (
     participantAccessTokens.map(({ participantId, token }) => [participantId, token]),
   );
 
-  return Promise.all(
-    group.participants.map((participant) => {
-      const token = tokenByParticipantId.get(participant.id);
+  const statuses: InvitationAttemptStatus[] = [];
+  for (const participant of group.participants) {
+    const token = tokenByParticipantId.get(participant.id);
 
-      if (!token) {
-        throw new Error('Participant access token not found.');
-      }
+    if (!token) {
+      throw new Error('Participant access token not found.');
+    }
 
-      return deliverInvitation({
+    statuses.push(
+      await deliverInvitation({
         participant: toInvitationRecipient(participant),
         groupName: group.name,
+        organizerName: group.owner.name,
         token,
-      });
-    }),
-  );
+      }),
+    );
+  }
+  return statuses;
 };
 
 export const resendInvitation = async (
@@ -211,6 +226,7 @@ export const resendInvitation = async (
   return deliverInvitation({
     participant: toInvitationRecipient(participant),
     groupName: group.name,
+    organizerName: group.owner.name,
     token,
   });
 };
@@ -239,7 +255,9 @@ export const resendPendingInvitations = async (groupId: string, ownerId: string)
   const eligibleParticipants = participants.filter(
     (participant) =>
       participant.accesses.length === 0 &&
-      participant.notifications[0]?.status !== NotificationStatus.SENT,
+      ![NotificationStatus.SENT, NotificationStatus.DELIVERED, NotificationStatus.PENDING].some(
+        (status) => status === participant.notifications[0]?.status,
+      ),
   );
   let sent = 0;
   let failed = 0;
