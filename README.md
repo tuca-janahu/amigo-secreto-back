@@ -70,6 +70,86 @@ não executa migrations automaticamente no startup.
 e-mail. O endpoint não persiste o conteúdo nem aceita identificadores de usuário,
 IDs de grupos ou tokens de participantes.
 
+## Entrada por link de convite
+
+O organizador pode gerar um link compartilhável para que pessoas com uma conta
+entrem no grupo. O próprio organizador copia o link e o envia por WhatsApp,
+e-mail ou outro canal; este fluxo não envia e-mails pelo sistema.
+
+O link não tem prazo fixo e aceita entradas somente enquanto o grupo está em
+`DRAFT`. Gerar novamente substitui o convite e invalida imediatamente o link
+anterior. Desativar o convite não remove quem já entrou. Um participante removido
+pelo organizador pode entrar novamente se ainda tiver um link ativo.
+
+| Endpoint                                     | Autorização       | Resposta de sucesso                                                           |
+| -------------------------------------------- | ----------------- | ----------------------------------------------------------------------------- |
+| `GET /groups/:groupId/invitation`            | Organizador       | `200 { invitation: { url, createdAt, updatedAt } }` ou `{ invitation: null }` |
+| `POST /groups/:groupId/invitation`           | Organizador       | `200 { invitation: { url, createdAt, updatedAt } }`; sempre gera outro token  |
+| `DELETE /groups/:groupId/invitation`         | Organizador       | `204`, inclusive quando não há convite                                        |
+| `GET /public/group-invitations/:token`       | Público           | `200 { group: { name } }`                                                     |
+| `POST /public/group-invitations/:token/join` | Conta autenticada | `200 { participation: { groupId, participantId } }`                           |
+
+Todos esses endpoints exigem que o grupo esteja em `DRAFT`. As operações de
+escrita aceitam corpo ausente ou `{}`, sem nome, e-mail ou ID de usuário.
+Usam o cookie HttpOnly `auth_token` e a proteção de origem já existentes.
+Todas as respostas de convite, incluindo erros, usam `Cache-Control: no-store`.
+Datas são timestamps ISO UTC.
+
+Consultar o convite não adiciona ninguém. A confirmação autenticada cria um
+`Participant` com o nome e o e-mail normalizado da conta e vincula seu `userId`.
+O grupo passa a aparecer em `GET /groups`, com o papel `PARTICIPANT`; um
+organizador participante tem os dois papéis. Repetir a confirmação retorna a
+mesma participação, sem duplicação. Se o e-mail já estiver cadastrado manualmente
+sem vínculo, o registro é vinculado à conta, preservando nome e restrições.
+Esse vínculo segue a confiança atual nas contas, sem nova verificação de e-mail.
+
+Erros seguem o formato existente da API: `{ error: "CODIGO" }` quando há código
+de negócio e `{ message: "..." }` nos demais casos.
+
+- `401`: sessão inválida ou conta inexistente ao confirmar a entrada.
+- `404 { error: "INVITATION_NOT_FOUND" }`: token malformado, inexistente,
+  substituído ou desativado.
+- `404`: grupo inexistente ou de outro organizador nas rotas de gerenciamento.
+- `409 { error: "INVITATION_CLOSED" }`: grupo fora de `DRAFT`.
+- `409 { error: "PARTICIPATION_ALREADY_CLAIMED" }`: participação vinculada a
+  outra conta ou conflito concorrente de identidade.
+- `400`: ID do grupo inválido ou corpo não permitido.
+- `429`: limite por IP excedido: 60 consultas públicas ou 20 tentativas de entrada
+  por janela de 15 minutos, em contadores separados.
+
+### Integração com o frontend
+
+A URL compartilhável é `${APP_URL}/invite/:token`. A tela deve consultar o
+convite, mostrar o nome do grupo e oferecer login/cadastro quando necessário.
+Preserve o token durante a autenticação e peça confirmação explícita antes de
+enviar o `POST .../join`. Após o sucesso, navegue para o grupo usando o `groupId`
+retornado. A confirmação usa os dados da conta autenticada, sem formulário de
+nome/e-mail. Esta entrega não implementa as telas.
+
+No gerenciamento, use `GET` para copiar novamente o link ativo; `POST` sempre
+gera um substituto, invalidando os links já compartilhados. Trate os estados
+de carregamento, ausência de convite, convite encerrado e convite inválido.
+
+### Persistência e consistência
+
+A migration `20261123000000_add_group_invitations` cria `GroupInvitation` com
+um registro por grupo, hash SHA-256 do token e cópia criptografada com AES-GCM
+pela chave `DATA_ENCRYPTION_KEY` existente. Os tokens têm 32 bytes aleatórios em
+Base64URL. O token original não é persistido em texto claro nem registrado em
+logs. A recuperação do link é exclusiva do organizador. Este convite não
+concede acesso ao resultado e não altera os tokens de `ParticipantAccess`.
+
+As escritas do convite e a entrada bloqueiam a linha do grupo em uma transação.
+O sorteio adquire o mesmo bloqueio antes de ler participantes: uma entrada que
+confirma primeiro participa do sorteio; se o sorteio concluir primeiro, a
+entrada é recusada. Falhas de viabilidade revertem o fechamento das inscrições.
+O convite é revalidado depois do bloqueio para respeitar substituições e
+desativações concorrentes.
+
+Aplique a nova migration com `pnpm db:deploy` antes de publicar o backend.
+Grupos existentes começam sem convite; nenhuma configuração adicional de
+ambiente é necessária.
+
 ## Validação
 
 ```bash

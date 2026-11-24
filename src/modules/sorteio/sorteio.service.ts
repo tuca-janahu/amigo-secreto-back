@@ -124,82 +124,87 @@ export const getSorteioViability = async (
 };
 
 export const sortearGrupo = async (groupId: string, ownerId: string) =>
-  prisma.$transaction(async (transaction) => {
-    const group = await getOwnedGroup(transaction, groupId, ownerId);
-    ensureDraft(group.status);
+  prisma.$transaction(
+    async (transaction) => {
+      const group = await getOwnedGroup(transaction, groupId, ownerId);
+      ensureDraft(group.status);
 
-    const sorteioData = await getSorteioData(transaction, group.id);
-    const viability = getViability(sorteioData);
+      // Close registration and hold the group lock before reading participants.
+      // A failed viability check rolls this change back with the transaction.
+      const sorteadoAt = new Date();
+      const updatedGroup = await transaction.group.updateMany({
+        where: { id: group.id, status: GroupStatus.DRAFT },
+        data: { status: GroupStatus.SORTEADO, sorteadoAt },
+      });
 
-    if (!viability.viable) {
-      throw sorteioNotViableError();
-    }
+      if (updatedGroup.count !== 1) {
+        throw new AppError(409, 'O grupo só pode ser sorteado uma vez.');
+      }
 
-    const matching = findSorteioMatching(
-      sorteioData.participantIds,
-      sorteioData.restrictions,
-    );
+      const sorteioData = await getSorteioData(transaction, group.id);
+      const viability = getViability(sorteioData);
 
-    if (!matching) {
-      throw sorteioNotViableError();
-    }
+      if (!viability.viable) {
+        throw sorteioNotViableError();
+      }
 
-    const sorteadoAt = new Date();
-    const updatedGroup = await transaction.group.updateMany({
-      where: { id: group.id, status: GroupStatus.DRAFT },
-      data: { status: GroupStatus.SORTEADO, sorteadoAt },
-    });
+      const matching = findSorteioMatching(
+        sorteioData.participantIds,
+        sorteioData.restrictions,
+      );
 
-    if (updatedGroup.count !== 1) {
-      throw new AppError(409, 'O grupo só pode ser sorteado uma vez.');
-    }
+      if (!matching) {
+        throw sorteioNotViableError();
+      }
 
-    await transaction.assignment.createMany({
-      data: sorteioData.participantIds.map((participantId) => {
-        const receiverParticipantId = matching.get(participantId);
+      await transaction.assignment.createMany({
+        data: sorteioData.participantIds.map((participantId) => {
+          const receiverParticipantId = matching.get(participantId);
 
-        if (!receiverParticipantId) {
-          throw new Error('Sorteio matching is incomplete.');
-        }
+          if (!receiverParticipantId) {
+            throw new Error('Sorteio matching is incomplete.');
+          }
 
-        return {
+          return {
+            participantId,
+            ...encryptSorteioResult(receiverParticipantId),
+          };
+        }),
+      });
+
+      const participantAccessTokens: ParticipantAccessToken[] =
+        sorteioData.participantIds.map((participantId) => ({
           participantId,
-          ...encryptSorteioResult(receiverParticipantId),
-        };
-      }),
-    });
+          token: generateParticipantAccessToken(),
+        }));
 
-    const participantAccessTokens: ParticipantAccessToken[] =
-      sorteioData.participantIds.map((participantId) => ({
-        participantId,
-        token: generateParticipantAccessToken(),
-      }));
+      await transaction.participantAccess.createMany({
+        data: participantAccessTokens.map(({ participantId, token }) => ({
+          participantId,
+          tokenHash: hashParticipantAccessToken(token),
+          expiresAt: getParticipantAccessExpiration(sorteadoAt),
+        })),
+      });
 
-    await transaction.participantAccess.createMany({
-      data: participantAccessTokens.map(({ participantId, token }) => ({
-        participantId,
-        tokenHash: hashParticipantAccessToken(token),
-        expiresAt: getParticipantAccessExpiration(sorteadoAt),
-      })),
-    });
+      // The successful update holds the group lock until commit. Read its current
+      // name in case a concurrent draft rename committed after the initial read.
+      const sorteadoGroup = await getOwnedGroup(transaction, group.id, ownerId);
+      await recordAuditEvent(transaction, {
+        type: 'SORTEIO_COMPLETED',
+        actorUserId: ownerId,
+        groupId: group.id,
+        groupName: sorteadoGroup.name,
+        occurredAt: sorteadoAt,
+      });
 
-    // The successful update holds the group lock until commit. Read its current
-    // name in case a concurrent draft rename committed after the initial read.
-    const sorteadoGroup = await getOwnedGroup(transaction, group.id, ownerId);
-    await recordAuditEvent(transaction, {
-      type: 'SORTEIO_COMPLETED',
-      actorUserId: ownerId,
-      groupId: group.id,
-      groupName: sorteadoGroup.name,
-      occurredAt: sorteadoAt,
-    });
-
-    return {
-      group: {
-        id: group.id,
-        status: GroupStatus.SORTEADO,
-        sorteadoAt,
-      },
-      participantAccessTokens,
-    };
-  });
+      return {
+        group: {
+          id: group.id,
+          status: GroupStatus.SORTEADO,
+          sorteadoAt,
+        },
+        participantAccessTokens,
+      };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  );

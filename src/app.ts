@@ -8,6 +8,11 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { feedbackRouter } from './modules/feedback/feedback.routes.js';
 import { groupsRouter } from './modules/groups/groups.routes.js';
+import {
+  groupInvitationNoStore,
+  ownerGroupInvitationsRouter,
+  publicGroupInvitationsRouter,
+} from './modules/group-invitations/group-invitations.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
   ownerMessagesRouter,
@@ -38,11 +43,17 @@ app.use(
     credentials: true,
   }),
 );
+// Set before body parsing so invitation errors cannot be cached either.
+app.use(
+  ['/groups/:groupId/invitation', '/public/group-invitations'],
+  groupInvitationNoStore,
+);
 app.use(express.json({ limit: '100kb' }));
 
 app.use('/auth', authRouter);
 app.use('/admin', adminRouter);
 app.use('/feedback', feedbackRouter);
+app.use('/groups', ownerGroupInvitationsRouter);
 app.use('/groups', groupsRouter);
 app.use('/groups', participantsRouter);
 app.use('/groups', restrictionsRouter);
@@ -52,6 +63,7 @@ app.use('/groups', ownerMessagesRouter);
 app.use('/groups', linkedParticipantAccessRouter);
 app.use('/public/participant-access', participantAccessRouter);
 app.use('/public/participant-access', participantMessagesRouter);
+app.use('/public/group-invitations', publicGroupInvitationsRouter);
 app.use('/health', healthRouter);
 
 app.use(notFoundHandler);

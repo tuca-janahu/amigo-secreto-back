@@ -71,11 +71,23 @@ model Group {
   participants      Participant[]
   restrictions      Restriction[]
   anonymousMessages AnonymousMessage[]
+  invitation        GroupInvitation?
 
   @@index([ownerId])
   @@index([status])
   @@index([createdAt])
   @@index([sorteadoAt])
+}
+
+model GroupInvitation {
+  id             String   @id @default(cuid())
+  groupId        String   @unique
+  tokenHash      String   @unique
+  tokenEncrypted String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 }
 
 model Participant {

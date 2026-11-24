@@ -414,7 +414,7 @@ describe('POST /groups/:groupId/sorteio', () => {
       groupId,
       3,
     );
-    const group = addGroup(groupId, 'owner-1');
+    addGroup(groupId, 'owner-1');
     restrictions.push(
       {
         groupId,
@@ -435,7 +435,7 @@ describe('POST /groups/:groupId/sorteio', () => {
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ error: 'SORTEIO_NOT_VIABLE' });
     expect(prismaMock.auditEvent.create).not.toHaveBeenCalled();
-    expect(group.status).toBe('DRAFT');
+    expect(groups.get(groupId)?.status).toBe('DRAFT');
     expect(assignments.size).toBe(0);
   });
 

@@ -18,8 +18,12 @@ beforeAll(async () => {
   const migrations = (await readdir(migrationsDirectory))
     .filter((name) => /^\d/.test(name))
     .sort();
-  // Apply the existing chain, seed existing records, and upgrade using the new migration.
-  for (const migration of migrations.slice(0, -1)) {
+  // Seed before the audit migration, even when later migrations are added.
+  const auditMigrationIndex = migrations.indexOf(
+    '20261120000000_add_admin_audit',
+  );
+  if (auditMigrationIndex === -1) throw new Error('Audit migration not found.');
+  for (const migration of migrations.slice(0, auditMigrationIndex)) {
     await database.exec(
       await readFile(
         new URL(`${migration}/migration.sql`, migrationsDirectory),
@@ -39,12 +43,14 @@ beforeAll(async () => {
       ('second', 'owner', 'Segundo', 'SORTEADO', '2026-11-02 02:59:59.999', '2026-11-02 03:00:00', now()),
       ('excluded', 'owner', 'Fora do período', 'DRAFT', '2026-11-04 03:00:00', null, now());
   `);
-  await database.exec(
-    await readFile(
-      new URL(`${migrations.at(-1)}/migration.sql`, migrationsDirectory),
-      'utf8',
-    ),
-  );
+  for (const migration of migrations.slice(auditMigrationIndex)) {
+    await database.exec(
+      await readFile(
+        new URL(`${migration}/migration.sql`, migrationsDirectory),
+        'utf8',
+      ),
+    );
+  }
   prismaMock.$queryRaw.mockImplementation(
     async (sql: Prisma.Sql) =>
       (await database.query(sql.text, sql.values)).rows,

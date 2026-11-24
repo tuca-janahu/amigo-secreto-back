@@ -43,9 +43,23 @@ export const feedbackRateLimiter = createRateLimiter(
   'Limite de feedbacks atingido. Tente novamente em alguns minutos.',
 );
 
+export const groupInvitationPreviewRateLimiter = createRateLimiter(
+  60,
+  'Muitas consultas de convite. Tente novamente em alguns minutos.',
+);
+
+export const groupInvitationJoinRateLimiter = createRateLimiter(
+  20,
+  'Muitas tentativas de participação. Tente novamente em alguns minutos.',
+);
+
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE']);
 
-export const requireTrustedOrigin: RequestHandler = (request, _response, next) => {
+export const requireTrustedOrigin: RequestHandler = (
+  request,
+  _response,
+  next,
+) => {
   if (!MUTATING_METHODS.has(request.method)) {
     next();
     return;
