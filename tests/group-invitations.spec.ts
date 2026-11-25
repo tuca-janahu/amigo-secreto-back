@@ -341,6 +341,28 @@ describe('group invitation management', () => {
     expect(oldJoin.status).toBe(404);
   });
 
+  it('identifies the owner only for their own authenticated invitation without joining on GET', async () => {
+    const token = await issueToken();
+    const owned = await request(app)
+      .get(publicPath(token))
+      .set('Cookie', cookie());
+    expect(owned.status).toBe(200);
+    expect(owned.body).toEqual({
+      group: { name: 'Amigos' },
+      ownerGroupId: groupId,
+    });
+    expect(owned.headers['cache-control']).toBe('no-store');
+
+    for (const authCookie of [cookie(userId), 'auth_token=invalid']) {
+      const other = await request(app)
+        .get(publicPath(token))
+        .set('Cookie', authCookie);
+      expect(other.status).toBe(200);
+      expect(other.body).toEqual({ group: { name: 'Amigos' } });
+    }
+    expect(participants.size).toBe(0);
+  });
+
   it('revokes idempotently and can generate a new invitation afterwards', async () => {
     const token = await issueToken();
     for (let i = 0; i < 2; i++) {

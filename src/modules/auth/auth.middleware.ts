@@ -1,4 +1,4 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 
 import {
   AUTH_COOKIE_NAME,
@@ -7,7 +7,9 @@ import {
 import { AppError } from '../../lib/app-error.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 
-const getCookieValue = (cookieHeader: string | undefined): string | undefined => {
+const getCookieValue = (
+  cookieHeader: string | undefined,
+): string | undefined => {
   if (!cookieHeader) {
     return undefined;
   }
@@ -20,9 +22,15 @@ const getCookieValue = (cookieHeader: string | undefined): string | undefined =>
   return cookie?.slice(AUTH_COOKIE_NAME.length + 1);
 };
 
-export const requireAuth: RequestHandler = (request, _response, next) => {
+export const getOptionalAuthenticatedUserId = (
+  request: Request,
+): string | null => {
   const token = getCookieValue(request.headers.cookie);
-  const userId = token ? getUserIdFromAuthToken(token) : null;
+  return token ? getUserIdFromAuthToken(token) : null;
+};
+
+export const requireAuth: RequestHandler = (request, _response, next) => {
+  const userId = getOptionalAuthenticatedUserId(request);
 
   if (!userId) {
     next(new AppError(401, 'Não autorizado.'));

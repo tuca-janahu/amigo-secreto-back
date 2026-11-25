@@ -103,6 +103,13 @@ mesma participação, sem duplicação. Se o e-mail já estiver cadastrado manua
 sem vínculo, o registro é vinculado à conta, preservando nome e restrições.
 Esse vínculo segue a confiança atual nas contas, sem nova verificação de e-mail.
 
+Quando o cookie identifica o próprio organizador, a consulta pública também
+retorna `ownerGroupId`, contendo o ID do grupo que ele já administra. Esse campo
+é omitido para visitantes e outras contas. O frontend pode usá-lo para confirmar
+automaticamente a participação do organizador por `POST .../join` e encaminhá-lo
+ao gerenciamento. A consulta `GET` continua sem criar ou vincular participantes;
+convidados continuam dependendo de confirmação explícita.
+
 Erros seguem o formato existente da API: `{ error: "CODIGO" }` quando há código
 de negócio e `{ message: "..." }` nos demais casos.
 

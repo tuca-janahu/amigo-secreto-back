@@ -127,14 +127,24 @@ export const deleteGroupInvitation = async (
   }, transactionOptions);
 };
 
-export const previewGroupInvitation = async (token: string) => {
+export const previewGroupInvitation = async (
+  token: string,
+  userId: string | null = null,
+) => {
   const invitation = await prisma.groupInvitation.findUnique({
     where: { tokenHash: hashGroupInvitationToken(token) },
-    select: { group: { select: { name: true, status: true } } },
+    select: {
+      group: { select: { id: true, ownerId: true, name: true, status: true } },
+    },
   });
   if (!invitation) throw invitationNotFoundError();
   ensureDraft(invitation.group.status);
-  return { group: { name: invitation.group.name } };
+  return {
+    group: { name: invitation.group.name },
+    ...(userId !== null && invitation.group.ownerId === userId
+      ? { ownerGroupId: invitation.group.id }
+      : {}),
+  };
 };
 
 export const joinGroupInvitation = async (token: string, userId: string) => {

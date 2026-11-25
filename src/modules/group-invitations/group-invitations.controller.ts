@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 
 import { AppError } from '../../lib/app-error.js';
 import type { AuthenticatedRequest } from '../auth/auth.types.js';
+import { getOptionalAuthenticatedUserId } from '../auth/auth.middleware.js';
 import {
   emptyInvitationBodySchema,
   invitationGroupParamsSchema,
@@ -88,7 +89,12 @@ export const preview: RequestHandler = async (request, response, next) => {
   try {
     response
       .status(200)
-      .json(await previewGroupInvitation(parseToken(request.params)));
+      .json(
+        await previewGroupInvitation(
+          parseToken(request.params),
+          getOptionalAuthenticatedUserId(request),
+        ),
+      );
   } catch (error) {
     next(error);
   }
