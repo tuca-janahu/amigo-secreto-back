@@ -2,6 +2,9 @@ import { GroupStatus, Prisma } from '@prisma/client';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const sendGroupJoinEmail = vi.hoisted(() => vi.fn());
+vi.mock('../src/modules/group-invitations/group-invitations.email.js', () => ({ sendGroupJoinEmail }));
+
 const prismaMock = vi.hoisted(() => ({
   $transaction: vi.fn(),
   user: { findUnique: vi.fn() },
@@ -176,7 +179,7 @@ beforeEach(() => {
         (where.groupId && where.groupId !== invitation.groupId)
       )
         return null;
-      return { ...invitation, group: { ...group } };
+      return { ...invitation, group: { ...group, owner: { email: users.get(ownerId)!.email } } };
     },
   );
   prismaMock.groupInvitation.findFirst.mockImplementation(async ({ where }) =>
@@ -453,6 +456,13 @@ describe('joining a group invitation', () => {
     expect(response.body).toEqual({
       participation: { groupId, participantId: 'participant-0' },
     });
+    expect(sendGroupJoinEmail).toHaveBeenCalledOnce();
+    expect(sendGroupJoinEmail).toHaveBeenCalledWith({
+      ownerEmail: 'owner@example.com',
+      participantName: 'Convidado',
+      groupId,
+      groupName: 'Amigos',
+    });
     const stored = participants.get('participant-0')!;
     expect(stored.userId).toBe(userId);
     expect(decryptData(stored.nameEncrypted)).toBe('Convidado');
@@ -479,6 +489,7 @@ describe('joining a group invitation', () => {
     expect(await joinGroupInvitation(token, userId)).toEqual(first);
     expect(participants.size).toBe(1);
     expect(prismaMock.participant.create).toHaveBeenCalledOnce();
+    expect(sendGroupJoinEmail).toHaveBeenCalledOnce();
   });
 
   it('keeps no-store on malformed JSON and oversized request bodies', async () => {
@@ -511,12 +522,31 @@ describe('joining a group invitation', () => {
     expect(prismaMock.participant.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { userId } }),
     );
+    expect(sendGroupJoinEmail).toHaveBeenCalledOnce();
   });
 
   it('allows the owner to join and retain both roles', async () => {
     await joinGroupInvitation(await issueToken(), ownerId);
+    expect(sendGroupJoinEmail).not.toHaveBeenCalled();
     const listed = await request(app).get('/groups').set('Cookie', cookie());
     expect(listed.body.groups[0].roles).toEqual(['OWNER', 'PARTICIPANT']);
+  });
+
+  it('keeps a confirmed join when the email provider fails', async () => {
+    const token = await issueToken();
+    sendGroupJoinEmail.mockRejectedValueOnce(new Error('provider failed'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(joinGroupInvitation(token, userId)).resolves.toEqual({
+        groupId, participantId: 'participant-0',
+      });
+      expect(errorLog).toHaveBeenCalledWith('group_join_email_failed', { groupId });
+      expect(participants.size).toBe(1);
+      await joinGroupInvitation(token, userId);
+      expect(sendGroupJoinEmail).toHaveBeenCalledOnce();
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('rejects a participant linked to a different account without changing it', async () => {

@@ -9,6 +9,7 @@ import {
   normalizeEmail,
 } from '../../lib/data-protection.js';
 import { prisma } from '../../lib/prisma.js';
+import { sendGroupJoinEmail } from './group-invitations.email.js';
 import {
   generateGroupInvitationToken,
   hashGroupInvitationToken,
@@ -149,7 +150,7 @@ export const previewGroupInvitation = async (
 
 export const joinGroupInvitation = async (token: string, userId: string) => {
   try {
-    return await prisma.$transaction(async (transaction) => {
+    const result = await prisma.$transaction(async (transaction) => {
       const user = await transaction.user.findUnique({
         where: { id: userId },
         select: { id: true, name: true, email: true },
@@ -159,7 +160,16 @@ export const joinGroupInvitation = async (token: string, userId: string) => {
       const tokenHash = hashGroupInvitationToken(token);
       const invitation = await transaction.groupInvitation.findUnique({
         where: { tokenHash },
-        select: { groupId: true },
+        select: {
+          groupId: true,
+          group: {
+            select: {
+              name: true,
+              ownerId: true,
+              owner: { select: { email: true } },
+            },
+          },
+        },
       });
       if (!invitation) throw invitationNotFoundError();
 
@@ -176,8 +186,22 @@ export const joinGroupInvitation = async (token: string, userId: string) => {
         where: { groupId_userId: { groupId, userId } },
         select: { id: true },
       });
-      if (linkedParticipant)
-        return { groupId, participantId: linkedParticipant.id };
+      if (linkedParticipant) {
+        return {
+          participation: { groupId, participantId: linkedParticipant.id },
+          notification: null,
+        };
+      }
+
+      const notification =
+        invitation.group.ownerId === userId
+          ? null
+          : {
+              ownerEmail: invitation.group.owner.email,
+              participantName: user.name,
+              groupId,
+              groupName: invitation.group.name,
+            };
 
       const email = normalizeEmail(user.email);
       const emailLookupHash = createEmailLookupHash(email);
@@ -198,7 +222,10 @@ export const joinGroupInvitation = async (token: string, userId: string) => {
           data: { userId },
         });
         if (claimed.count !== 1) throw participationConflictError();
-        return { groupId, participantId: existingParticipant.id };
+        return {
+          participation: { groupId, participantId: existingParticipant.id },
+          notification,
+        };
       }
 
       const participant = await transaction.participant.create({
@@ -211,8 +238,22 @@ export const joinGroupInvitation = async (token: string, userId: string) => {
         },
         select: { id: true },
       });
-      return { groupId, participantId: participant.id };
+      return {
+        participation: { groupId, participantId: participant.id },
+        notification,
+      };
     }, transactionOptions);
+    if (result.notification) {
+      try {
+        await sendGroupJoinEmail(result.notification);
+      } catch {
+        // A falha do provedor não desfaz uma participação já confirmada.
+        console.error('group_join_email_failed', {
+          groupId: result.participation.groupId,
+        });
+      }
+    }
+    return result.participation;
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
