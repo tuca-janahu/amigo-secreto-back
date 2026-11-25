@@ -195,6 +195,30 @@ describe('auth', () => {
       });
       expect(response.status).toBe(500);
       expect(users.size).toBe(0);
+      expect(response.headers['set-cookie']).toBeUndefined();
+    });
+
+    it('starts an HTTP-only session at registration without a separate login', async () => {
+      const agent = request.agent(app);
+      const response = await agent.post('/auth/register').send({
+        name: 'Ana',
+        email: 'ana@example.com',
+        password: 'secure-password',
+      });
+
+      expect(response.status).toBe(201);
+      const cookie = response.headers['set-cookie']?.[0];
+      expect(cookie).toContain('auth_token=');
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('SameSite=Lax');
+      expect(cookie).toContain('Path=/');
+      expect(cookie).toContain('Max-Age=604800');
+      expect(response.body).not.toHaveProperty('token');
+      expect(response.body.user).not.toHaveProperty('passwordHash');
+
+      const session = await agent.get('/auth/me');
+      expect(session.status).toBe(200);
+      expect(session.body.user).toMatchObject(response.body.user);
     });
 
     it('creates a user with normalized email and does not expose passwordHash', async () => {
@@ -225,6 +249,7 @@ describe('auth', () => {
       });
 
       expect(response.status).toBe(400);
+      expect(response.headers['set-cookie']).toBeUndefined();
     });
 
     it('rejects a password shorter than eight characters', async () => {
@@ -257,6 +282,7 @@ describe('auth', () => {
       });
 
       expect(response.status).toBe(409);
+      expect(response.headers['set-cookie']).toBeUndefined();
     });
   });
 

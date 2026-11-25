@@ -64,6 +64,7 @@ export const register: RequestHandler = async (request, response, next) => {
   try {
     const user = await registerUser(getRegistrationData(request.body));
 
+    setAuthCookie(response, user.id);
     response.status(201).json({ user });
   } catch (error) {
     next(error);

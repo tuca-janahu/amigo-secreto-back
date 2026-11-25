@@ -64,6 +64,14 @@ não executa migrations automaticamente no startup.
 { "status": "ok" }
 ```
 
+## Cadastro e sessão
+
+`POST /auth/register` cria a conta e inicia a sessão automaticamente. A resposta
+mantém `201 { user: { id, name, email } }` e envia o mesmo cookie `auth_token`
+do login: HttpOnly, SameSite=Lax, duração de sete dias e Secure em produção.
+Não é necessário chamar `/auth/login` depois do cadastro. Cadastros rejeitados
+não emitem um cookie de sessão.
+
 ## Feedback
 
 `POST /feedback` recebe relatos anônimos de bugs e sugestões e os encaminha por
